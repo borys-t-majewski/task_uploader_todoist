@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nagrywanie i Transkrypcja Audio</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            border-radius: 15px;
+            padding: 20px 30px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            color: #333;
+            font-size: 24px;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .username {
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .btn-logout {
+            padding: 8px 20px;
+            background: #f44336;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            text-decoration: none;
+            transition: background 0.3s;
+        }
+
+        .btn-logout:hover {
+            background: #d32f2f;
+        }
+
+        .main-panel {
+            background: white;
+            border-radius: 15px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        }
+
+        .recording-section {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .recording-section h2 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        .record-button {
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            border: none;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-size: 48px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.3s;
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+            margin: 20px 0;
+        }
+
+        .record-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 15px 40px rgba(102, 126, 234, 0.5);
+        }
+
+        .record-button:active {
+            transform: scale(0.95);
+        }
+
+        .record-button.recording {
+            background: #f44336;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                box-shadow: 0 10px 30px rgba(244, 67, 54, 0.3);
+            }
+            50% {
+                box-shadow: 0 10px 50px rgba(244, 67, 54, 0.6);
+            }
+        }
+
+        .timer {
+            font-size: 24px;
+            color: #666;
+            margin: 15px 0;
+            font-weight: 600;
+            min-height: 36px;
+        }
+
+        .timer.recording {
+            color: #f44336;
+        }
+
+        .status-message {
+            margin: 15px 0;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .status-message.info {
+            background: #e3f2fd;
+            color: #1976d2;
+            border-left: 4px solid #1976d2;
+        }
+
+        .status-message.error {
+            background: #ffebee;
+            color: #c62828;
+            border-left: 4px solid #c62828;
+        }
+
+        .status-message.success {
+            background: #e8f5e9;
+            color: #2e7d32;
+            border-left: 4px solid #2e7d32;
+        }
+
+        .transcription-section {
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 2px solid #f0f0f0;
+        }
+
+        .transcription-section h3 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        .transcription-box {
+            background: #f9f9f9;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 20px;
+            min-height: 150px;
+            color: #333;
+            font-size: 16px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .transcription-box.empty {
+            color: #999;
+            font-style: italic;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+            display: none;
+        }
+
+        .spinner.active {
+            display: block;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .instructions {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .instructions h3 {
+            color: #856404;
+            font-size: 16px;
+            margin-bottom: 8px;
+        }
+
+        .instructions ul {
+            color: #856404;
+            margin-left: 20px;
+            font-size: 14px;
+            line-height: 1.8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎤 Transkrypcja Audio</h1>
+            <div class="user-info">
+                <span class="username">👤 {{ username }}</span>
+                <a href="{{ url_for('logout') }}" class="btn-logout">Wyloguj</a>
+            </div>
+        </div>
+
+        <div class="main-panel">
+            <div class="instructions">
+                <h3>📋 Instrukcja:</h3>
+                <ul>
+                    <li>Kliknij przycisk mikrofonu, aby rozpocząć nagrywanie</li>
+                    <li>Możesz nagrywać do 60 sekund</li>
+                    <li>Kliknij ponownie, aby zakończyć nagrywanie</li>
+                    <li>Transkrypcja pojawi się automatycznie poniżej</li>
+                </ul>
+            </div>
+
+            <div class="recording-section">
+                <h2>Nagrywaj swój dźwięk</h2>
+                
+                <button id="recordButton" class="record-button" title="Kliknij aby rozpocząć nagrywanie">
+                    🎤
+                </button>
+                
+                <div id="timer" class="timer"></div>
+                <div id="statusMessage"></div>
+                <div class="spinner" id="spinner"></div>
+            </div>
+
+            <div class="transcription-section">
+                <h3>📝 Transkrypcja:</h3>
+                <div id="transcriptionBox" class="transcription-box empty">
+                    Transkrypcja pojawi się tutaj po nagraniu...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+        let startTime;
+        let timerInterval;
+        const MAX_RECORDING_TIME = 60; // 60 sekund
+
+        const recordButton = document.getElementById('recordButton');
+        const timerDisplay = document.getElementById('timer');
+        const statusMessage = document.getElementById('statusMessage');
+        const transcriptionBox = document.getElementById('transcriptionBox');
+        const spinner = document.getElementById('spinner');
+
+        // Funkcja do wyświetlania komunikatów
+        function showStatus(message, type = 'info') {
+            statusMessage.textContent = message;
+            statusMessage.className = `status-message ${type}`;
+            statusMessage.style.display = 'block';
+        }
+
+        function hideStatus() {
+            statusMessage.style.display = 'none';
+        }
+
+        // Funkcja do formatowania czasu
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        // Funkcja do aktualizacji timera
+        function updateTimer() {
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            const remaining = MAX_RECORDING_TIME - elapsed;
+            
+            if (remaining <= 0) {
+                stopRecording();
+                return;
+            }
+            
+            timerDisplay.textContent = formatTime(remaining);
+        }
+
+        // Funkcja do rozpoczęcia nagrywania
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+                
+                mediaRecorder.ondataavailable = (event) => {
+                    audioChunks.push(event.data);
+                };
+                
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    await sendAudioForTranscription(audioBlob);
+                    
+                    // Zatrzymaj wszystkie ścieżki audio
+                    stream.getTracks().forEach(track => track.stop());
+                };
+                
+                mediaRecorder.start();
+                isRecording = true;
+                recordButton.classList.add('recording');
+                recordButton.textContent = '⏹️';
+                recordButton.title = 'Kliknij aby zakończyć nagrywanie';
+                
+                startTime = Date.now();
+                timerDisplay.classList.add('recording');
+                timerInterval = setInterval(updateTimer, 100);
+                updateTimer();
+                
+                showStatus('🔴 Nagrywanie w toku...', 'info');
+                
+            } catch (error) {
+                console.error('Błąd dostępu do mikrofonu:', error);
+                showStatus('❌ Błąd: Nie można uzyskać dostępu do mikrofonu. Sprawdź uprawnienia przeglądarki.', 'error');
+            }
+        }
+
+        // Funkcja do zatrzymania nagrywania
+        function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                isRecording = false;
+                recordButton.classList.remove('recording');
+                recordButton.textContent = '🎤';
+                recordButton.title = 'Kliknij aby rozpocząć nagrywanie';
+                
+                clearInterval(timerInterval);
+                timerDisplay.classList.remove('recording');
+                timerDisplay.textContent = '';
+                
+                showStatus('⏳ Przetwarzanie nagrania...', 'info');
+                spinner.classList.add('active');
+            }
+        }
+
+        // Funkcja do wysyłania audio do serwera
+        async function sendAudioForTranscription(audioBlob) {
+            const formData = new FormData();
+            formData.append('audio', audioBlob, 'recording.webm');
+            
+            try {
+                const response = await fetch('/transcribe', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                spinner.classList.remove('active');
+                
+                if (data.success) {
+                    transcriptionBox.textContent = data.transcription;
+                    transcriptionBox.classList.remove('empty');
+                    showStatus('✅ Transkrypcja zakończona pomyślnie!', 'success');
+                } else {
+                    showStatus(`❌ Błąd: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                spinner.classList.remove('active');
+                console.error('Błąd podczas wysyłania:', error);
+                showStatus('❌ Błąd podczas komunikacji z serwerem.', 'error');
+            }
+        }
+
+        // Obsługa kliknięcia przycisku nagrywania
+        recordButton.addEventListener('click', () => {
+            if (isRecording) {
+                stopRecording();
+            } else {
+                startRecording();
+            }
+        });
+
+        // Ukryj komunikat statusu na początku
+        hideStatus();
+    </script>
+</body>
+</html>
+
