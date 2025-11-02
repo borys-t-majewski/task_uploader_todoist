@@ -165,25 +165,71 @@
 
         .transcription-section h3 {
             color: #333;
-            margin-bottom: 15px;
+            margin-bottom: 12px;
         }
 
-        .transcription-box {
-            background: #f9f9f9;
+        .section-block {
+            margin-bottom: 25px;
+        }
+
+        .text-area {
+            width: 100%;
+            min-height: 160px;
+            padding: 18px;
             border: 2px solid #e0e0e0;
             border-radius: 10px;
-            padding: 20px;
-            min-height: 150px;
-            color: #333;
-            font-size: 16px;
+            font-size: 15px;
             line-height: 1.6;
-            white-space: pre-wrap;
-            word-wrap: break-word;
+            resize: vertical;
+            transition: border-color 0.3s, box-shadow 0.3s;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
 
-        .transcription-box.empty {
+        .text-area.readonly {
+            background: #f9f9f9;
+            color: #333;
+        }
+
+        .text-area.editable {
+            background: #fff;
+        }
+
+        .text-area:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .text-area::placeholder {
             color: #999;
-            font-style: italic;
+        }
+
+        .todoist-button {
+            margin-top: 15px;
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #00b09b 0%, #96c93d 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
+        }
+
+        .todoist-button:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+            box-shadow: none;
+        }
+
+        .todoist-button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 176, 155, 0.4);
+        }
+
+        .status-message.inline {
+            margin-top: 12px;
         }
 
         .spinner {
@@ -262,9 +308,17 @@
             </div>
 
             <div class="transcription-section">
-                <h3>📝 Transkrypcja:</h3>
-                <div id="transcriptionBox" class="transcription-box empty">
-                    Transkrypcja pojawi się tutaj po nagraniu...
+                <div class="section-block">
+                    <h3>📝 Transkrypcja:</h3>
+                    <textarea id="transcriptionText" class="text-area readonly" readonly>Transkrypcja pojawi się tutaj po nagraniu...</textarea>
+                </div>
+
+                <div class="section-block">
+                    <h3>✅ Sugestie z AI:</h3>
+                    <textarea id="assistantText" class="text-area editable" placeholder="Sugestie pojawią się tutaj po transkrypcji..."></textarea>
+                    <div id="assistantStatus" class="status-message inline" style="display: none;"></div>
+                    <button id="sendTodoistButton" class="todoist-button" disabled>Wyślij do Todoist</button>
+                    <div id="todoistStatus" class="status-message inline" style="display: none;"></div>
                 </div>
             </div>
         </div>
@@ -281,7 +335,11 @@
         const recordButton = document.getElementById('recordButton');
         const timerDisplay = document.getElementById('timer');
         const statusMessage = document.getElementById('statusMessage');
-        const transcriptionBox = document.getElementById('transcriptionBox');
+        const transcriptionText = document.getElementById('transcriptionText');
+        const assistantText = document.getElementById('assistantText');
+        const assistantStatus = document.getElementById('assistantStatus');
+        const sendTodoistButton = document.getElementById('sendTodoistButton');
+        const todoistStatus = document.getElementById('todoistStatus');
         const spinner = document.getElementById('spinner');
 
         // Funkcja do wyświetlania komunikatów
@@ -294,6 +352,24 @@
         function hideStatus() {
             statusMessage.style.display = 'none';
         }
+
+        function updateInlineStatus(element, message, type = 'info') {
+            if (!element) return;
+            element.textContent = message;
+            element.className = `status-message inline ${type}`;
+            element.style.display = 'block';
+        }
+
+        function clearInlineStatus(element) {
+            if (!element) return;
+            element.style.display = 'none';
+            element.textContent = '';
+        }
+
+        assistantText.addEventListener('input', () => {
+            const hasContent = assistantText.value.trim().length > 0;
+            sendTodoistButton.disabled = !hasContent;
+        });
 
         // Funkcja do formatowania czasu
         function formatTime(seconds) {
@@ -347,6 +423,10 @@
                 updateTimer();
                 
                 showStatus('🔴 Nagrywanie w toku...', 'info');
+                clearInlineStatus(assistantStatus);
+                clearInlineStatus(todoistStatus);
+                assistantText.value = '';
+                sendTodoistButton.disabled = true;
                 
             } catch (error) {
                 console.error('Błąd dostępu do mikrofonu:', error);
@@ -376,6 +456,11 @@
         async function sendAudioForTranscription(audioBlob) {
             const formData = new FormData();
             formData.append('audio', audioBlob, 'recording.webm');
+
+            clearInlineStatus(assistantStatus);
+            clearInlineStatus(todoistStatus);
+            assistantText.value = '';
+            sendTodoistButton.disabled = true;
             
             try {
                 const response = await fetch('/transcribe', {
@@ -387,16 +472,32 @@
                 spinner.classList.remove('active');
                 
                 if (data.success) {
-                    transcriptionBox.textContent = data.transcription;
-                    transcriptionBox.classList.remove('empty');
+                    transcriptionText.value = data.transcription || 'Brak transkrypcji.';
+                    if (data.assistant_output) {
+                        assistantText.value = data.assistant_output;
+                        const hasContent = assistantText.value.trim().length > 0;
+                        sendTodoistButton.disabled = !hasContent;
+                        updateInlineStatus(assistantStatus, 'Sugestie wygenerowane. Możesz je edytować przed wysyłką.', 'success');
+                    } else {
+                        assistantText.value = '';
+                        sendTodoistButton.disabled = true;
+                        updateInlineStatus(assistantStatus, 'Brak automatycznych sugestii. Wprowadź treść ręcznie.', 'info');
+                    }
+
+                    if (data.assistant_error) {
+                        updateInlineStatus(assistantStatus, data.assistant_error, 'error');
+                    }
+
                     showStatus('✅ Transkrypcja zakończona pomyślnie!', 'success');
                 } else {
+                    transcriptionText.value = '';
                     showStatus(`❌ Błąd: ${data.error}`, 'error');
                 }
             } catch (error) {
                 spinner.classList.remove('active');
                 console.error('Błąd podczas wysyłania:', error);
                 showStatus('❌ Błąd podczas komunikacji z serwerem.', 'error');
+                transcriptionText.value = '';
             }
         }
 
@@ -409,8 +510,47 @@
             }
         });
 
+        async function sendToTodoist() {
+            const content = assistantText.value.trim();
+
+            if (!content) {
+                updateInlineStatus(todoistStatus, 'Pole nie może być puste.', 'error');
+                return;
+            }
+
+            updateInlineStatus(todoistStatus, '⏳ Wysyłanie zadania do Todoist...', 'info');
+            sendTodoistButton.disabled = true;
+
+            try {
+                const response = await fetch('/todoist', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ content })
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    updateInlineStatus(todoistStatus, '✅ Zadanie zostało wysłane do Todoist.', 'success');
+                } else {
+                    updateInlineStatus(todoistStatus, `❌ Błąd Todoist: ${result.error || 'Nieznany błąd.'}`, 'error');
+                }
+            } catch (error) {
+                console.error('Błąd podczas wysyłania do Todoist:', error);
+                updateInlineStatus(todoistStatus, '❌ Błąd podczas komunikacji z Todoist.', 'error');
+            } finally {
+                sendTodoistButton.disabled = assistantText.value.trim().length === 0;
+            }
+        }
+
+        sendTodoistButton.addEventListener('click', sendToTodoist);
+
         // Ukryj komunikat statusu na początku
         hideStatus();
+        clearInlineStatus(assistantStatus);
+        clearInlineStatus(todoistStatus);
     </script>
 </body>
 </html>
