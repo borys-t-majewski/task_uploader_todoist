@@ -1,0 +1,107 @@
+"""Helpers for generating to-do suggestions from AI models."""
+
+from __future__ import annotations
+
+from typing import Optional, Sequence
+
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
+from pydantic import BaseModel, Field
+from datetime import datetime
+
+class TodoSuggestion(BaseModel):
+    """Structured representation of AI-generated to-do suggestion."""
+
+    project: str = Field(
+        ...,
+        description="Project label. Prefix with NEWPROJECT if it is not in the provided list or explicitly new.",
+    )
+    task_summary: str = Field(..., description="Succinct summary of the task.")
+    task: list[str] = Field(
+        ...,
+        description="List of clear, actionable to-do items for executing the task.",
+    )
+    priority: int = Field(
+        ...,
+        ge=1,
+        le=4,
+        description="Priority value from 1 (highest) to 4 (lowest).",
+    )
+    due_date: str = Field(
+        ...,
+        description=f"Due date. Format: YYYY-MM-DD. Consider today's date: {datetime.now().strftime('%Y-%m-%d')}. Consider that if timeline is before today, then you should use next year.",
+    )
+    labels: list[str] = Field(
+        ...,
+        description="Labels",
+    )
+
+def _build_instruction_prompt(project_types: Sequence[str]) -> str:
+    if project_types:
+        projects_section = "\n".join(f"- {name}" for name in project_types)
+        project_clause = (
+            "Project must explicitly match one of the allowed project types listed below. "
+            "If the transcript specifies a different or new project, prefix the project name with NEWPROJECT."\
+        )
+        allowed_projects = f"Allowed project types:\n{projects_section}"
+    else:
+        project_clause = (
+            "No predefined project types were supplied. If the transcript references a project, "
+            "use its name. If it is explicitly new, prefix with NEWPROJECT."
+        )
+        allowed_projects = ""
+
+    return (
+        "You are an expert productivity assistant. Read the provided transcript and produce a structured summary.\n"
+        f"{project_clause}\n"
+        "Return the output with the following fields: project, task_summary, task, priority.\n"
+        "- project: string value.\n"
+        "- task_summary: 1-2 sentence summary of the overall task.\n"
+        "- task: array of concise, actionable to-do items (each item is a short sentence).\n"
+        "- priority: integer 1-4, where 1 is highest priority, 4 is lowest. Default to 4 when unspecified.\n"
+        "Ensure the project string contains NEWPROJECT prefix when the transcript implies a new project or the project is not in the allowed list.\n"
+        f"{allowed_projects}"
+    )
+
+
+def generate_todo_suggestions(
+    transcription_text: str,
+    *,
+    prompt: str,
+    model: str,
+    project_types: Sequence[str] | None = None,
+    api_key: Optional[str] = None,
+    temperature: float = 0.0,
+) -> Optional[TodoSuggestion]:
+    """Return structured to-do suggestions based on transcription text."""
+
+    if not transcription_text or not transcription_text.strip():
+        return None
+
+    project_types = project_types or []
+
+    system_prompt = prompt.strip() if prompt.strip() else ""
+    instruction = _build_instruction_prompt(project_types)
+
+    template = ChatPromptTemplate.from_messages(
+        [
+            ("system", "{instruction}"),
+            ("system", "{system_prompt}"),
+            ("user", "{user_prompt}"),
+        ]
+    )
+
+    messages = template.format_messages(
+        instruction=instruction,
+        system_prompt=system_prompt,
+        user_prompt=f"Transcript:\n{transcription_text.strip()}",
+    )
+
+    llm = ChatOpenAI(
+        model=model,
+        temperature=temperature,
+        api_key=api_key,
+    ).with_structured_output(TodoSuggestion)
+
+    return llm.invoke(messages)
+

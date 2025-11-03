@@ -8,6 +8,7 @@ Aplikacja webowa w Pythonie wykorzystująca Flask i OpenAI Whisper do nagrywania
 - ✅ Nagrywanie audio bezpośrednio w przeglądarce (do 60 sekund)
 - ✅ Automatyczna transkrypcja za pomocą OpenAI Whisper API
 - ✅ Automatyczne generowanie sugestii z modelu tekstowego (edycja w dodatkowym polu)
+- ✅ Strukturalne wyniki obejmujące projekt, skrót zadania, kroki i priorytet (function calling)
 - ✅ Wysyłanie wygenerowanych zadań do Todoist jednym przyciskiem
 - ✅ Nowoczesny i responsywny interfejs użytkownika
 
@@ -32,6 +33,7 @@ pip install -r requirements.txt
    TODOIST_API_TOKEN=todoist-xxx
    TODOIST_PROJECT_ID=
    WHISPER_LANGUAGE=pl
+   PROJECT_TYPES=Sales,Marketing,Support
    ```
 
    **Opcja B: Zmienna środowiskowa**
@@ -43,6 +45,7 @@ pip install -r requirements.txt
    $env:TODOIST_API_TOKEN="todoist-xxx"
    $env:TODOIST_PROJECT_ID=""
    $env:WHISPER_LANGUAGE="pl"
+   $env:PROJECT_TYPES="Sales,Marketing,Support"
 
    # Windows CMD
    set OPENAI_API_KEY=twoj-klucz-api
@@ -51,6 +54,7 @@ pip install -r requirements.txt
    set TODOIST_API_TOKEN=todoist-xxx
    set TODOIST_PROJECT_ID=
    set WHISPER_LANGUAGE=pl
+   set PROJECT_TYPES=Sales,Marketing,Support
 
    # Linux/Mac
    export OPENAI_API_KEY="twoj-klucz-api"
@@ -59,6 +63,7 @@ pip install -r requirements.txt
    export TODOIST_API_TOKEN="todoist-xxx"
    export TODOIST_PROJECT_ID=""
    export WHISPER_LANGUAGE="pl"
+   export PROJECT_TYPES="Sales,Marketing,Support"
    ```
 
 ## 🚀 Uruchomienie
@@ -103,6 +108,7 @@ Aplikacja posiada predefiniowane konta:
 - Opcjonalnie ustaw `TODOIST_PROJECT_ID`, aby zadania trafiały do konkretnego projektu
 - Tekst z drugiego pola jest wysyłany jako treść zadania; możesz go edytować przed wysyłką
 - W przypadku błędu odpowiedni komunikat pojawi się pod przyciskiem
+- Zmienna `PROJECT_TYPES` pozwala kontrolować dostępne typy projektów; jeśli transkrypt wykracza poza listę, prefiks `NEWPROJECT` zostanie dodany automatycznie
 
 ## ⚠️ Wymagania
 

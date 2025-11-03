@@ -1,12 +1,14 @@
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 import os
 from werkzeug.security import check_password_hash, generate_password_hash
-import requests
-from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
 from openai import OpenAI
 import tempfile
 from dotenv import load_dotenv
+
+from typing import List
+
+from todo_suggestions import TodoSuggestion, generate_todo_suggestions
+from todoist_tasks import TodoistError, create_todoist_task as create_todoist_task_api
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)  # Generuj losowy klucz sesji
@@ -33,6 +35,9 @@ WHISPER_LANGUAGE = os.getenv('WHISPER_LANGUAGE')  # pozostaw puste dla autodetek
 TODOIST_API_TOKEN = os.getenv('TODOIST_API_TOKEN')
 TODOIST_PROJECT_ID = os.getenv('TODOIST_PROJECT_ID')
 TODOIST_API_URL = "https://api.todoist.com/rest/v2/tasks"
+PROJECT_TYPES: List[str] = [
+    value.strip() for value in os.getenv('PROJECT_TYPES', '').split(',') if value.strip()
+]
 
 # Predefiniowane konta użytkowników (login: hasło zahashowane)
 USERS = {
@@ -45,31 +50,55 @@ USERS = {
 # LangChain nie ma bezpośredniej integracji z Whisper, więc używamy standardowego klienta
 client = OpenAI(api_key=openai_api_key or None)
 
-chat_llm = ChatOpenAI(
-    model=OPENAI_TEXT_MODEL,
-    temperature=0,
-    api_key=openai_api_key or None,
-)
 
-todo_prompt_template = ChatPromptTemplate.from_messages([
-    ("system", "{system_prompt}"),
-    ("user", "{user_prompt}"),
-])
+def format_todo_suggestion_text(suggestion: TodoSuggestion) -> str:
+    lines = [
+        f"!!Project!!: {suggestion.project}",
+        f"!!Task Summary!!: {suggestion.task_summary}",
+        "!!Task!!:" if len(suggestion.task) == 1 else "!!Tasks!!:",
+    ]
+
+    if suggestion.task:
+        for item in suggestion.task:
+            lines.append(f"- {item}")
+    else:
+        lines.append("- (brak pozycji)")
+
+    lines.append(f"!!Priority!!: {suggestion.priority}")
+
+    if suggestion.due_date:
+        lines.append(f"!!Due Date!!: {suggestion.due_date}")
+    if suggestion.labels:
+        lines.append(f"!!Labels!!: {suggestion.labels}")
+        
+    return "\n".join(lines)
 
 
-def generate_todo_suggestions(transcription_text: str) -> str:
-    """Generate structured to-do suggestions using OpenAI text model."""
-    if not transcription_text.strip():
-        return ""
+def split_content_into_dict(content: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    if not content:
+        return result
 
-    messages = todo_prompt_template.format_messages(
-        system_prompt=TODO_PROMPT.strip(),
-        user_prompt=f"Transkrypcja:\n{transcription_text.strip()}",
-    )
+    current_key: str | None = None
+    buffer: list[str] = []
 
-    response = chat_llm.invoke(messages)
-    return (response.content or "").strip()
+    def flush() -> None:
+        nonlocal buffer, current_key
+        if current_key is not None:
+            value = "\n".join(line.rstrip() for line in buffer).strip()
+            result[current_key] = value
+        buffer = []
 
+    for raw_line in content.splitlines():
+        stripped = raw_line.strip()
+        if stripped.startswith('!!') and stripped.endswith('!!') and len(stripped) > 4:
+            flush()
+            current_key = stripped[2:-2].strip()
+            continue
+        buffer.append(raw_line)
+
+    flush()
+    return result
 
 @app.route('/')
 def index():
@@ -139,9 +168,29 @@ def transcribe():
 
         generated_text = ""
         generation_error = None
+        structured_payload = None
 
         try:
-            generated_text = generate_todo_suggestions(transcription_text)
+            suggestion_obj = generate_todo_suggestions(
+                transcription_text,
+                prompt=TODO_PROMPT,
+                model=OPENAI_TEXT_MODEL,
+                project_types=PROJECT_TYPES,
+                api_key=openai_api_key,
+            )
+
+            if suggestion_obj:
+                structured_payload = suggestion_obj.model_dump()
+                print('---------------')
+                print(structured_payload)
+                print('---------------')
+                generated_text = format_todo_suggestion_text(suggestion_obj)
+                print('---------------')
+                print(generated_text)
+                print('---------------')
+            else:
+                generated_text = ""
+
         except Exception as gen_exc:  # noqa: BLE001
             generation_error = str(gen_exc)
         
@@ -153,6 +202,9 @@ def transcribe():
             'transcription': transcription_text,
             'assistant_output': generated_text,
         }
+
+        if structured_payload:
+            response_payload['assistant_structured'] = structured_payload
 
         if generation_error:
             response_payload['assistant_error'] = (
@@ -179,6 +231,7 @@ def create_todoist_task():
 
     payload = request.get_json(silent=True) or {}
     content = (payload.get('content') or '').strip()
+    structured_payload = payload.get('structured')
 
     if not content:
         return jsonify({'error': 'Treść zadania nie może być pusta.'}), 400
@@ -186,31 +239,29 @@ def create_todoist_task():
     if not TODOIST_API_TOKEN:
         return jsonify({'error': 'Brak konfiguracji klucza API Todoist.'}), 400
 
-    todoist_payload = {"content": content}
-    if TODOIST_PROJECT_ID:
-        todoist_payload["project_id"] = TODOIST_PROJECT_ID
-
-    headers = {
-        "Authorization": f"Bearer {TODOIST_API_TOKEN}",
-        "Content-Type": "application/json",
-    }
-
     try:
-        response = requests.post(
-            TODOIST_API_URL,
-            headers=headers,
-            json=todoist_payload,
-            timeout=10,
+        todoist_response = create_todoist_task_api(
+            content,
+            api_token=TODOIST_API_TOKEN,
+            project_id=TODOIST_PROJECT_ID,
+            api_url=TODOIST_API_URL,
+            priority=structured_payload.get('priority'),
+            due_date=structured_payload.get('due_date'),
+            labels=structured_payload.get('labels'),
         )
-
-        if response.status_code in (200, 201):
-            return jsonify({'success': True, 'todoist_response': response.json()}), response.status_code
-
+        # splits into dict after sending to todoist, have to do it before
         return jsonify({
-            'error': f'Błąd Todoist ({response.status_code}): {response.text}'
-        }), response.status_code
+            'success': True,
+            'todoist_response': todoist_response,
+            'parsed_content': split_content_into_dict(content),
+            'structured_payload': structured_payload,
+        }), 200
 
-    except requests.RequestException as todo_exc:
+    except ValueError as val_err:
+        return jsonify({'error': str(val_err)}), 400
+    except TodoistError as todo_err:
+        return jsonify({'error': str(todo_err)}), todo_err.status_code
+    except Exception as todo_exc:  # noqa: BLE001
         return jsonify({'error': f'Błąd połączenia z Todoist: {todo_exc}'}), 502
 
 

@@ -461,6 +461,7 @@
             clearInlineStatus(todoistStatus);
             assistantText.value = '';
             sendTodoistButton.disabled = true;
+            delete assistantText.dataset.structured;
             
             try {
                 const response = await fetch('/transcribe', {
@@ -484,6 +485,12 @@
                         updateInlineStatus(assistantStatus, 'Brak automatycznych sugestii. Wprowadź treść ręcznie.', 'info');
                     }
 
+                    if (data.assistant_structured) {
+                        assistantText.dataset.structured = JSON.stringify(data.assistant_structured, null, 2);
+                    } else {
+                        delete assistantText.dataset.structured;
+                    }
+
                     if (data.assistant_error) {
                         updateInlineStatus(assistantStatus, data.assistant_error, 'error');
                     }
@@ -498,6 +505,7 @@
                 console.error('Błąd podczas wysyłania:', error);
                 showStatus('❌ Błąd podczas komunikacji z serwerem.', 'error');
                 transcriptionText.value = '';
+                delete assistantText.dataset.structured;
             }
         }
 
