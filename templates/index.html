@@ -39,6 +39,53 @@
             font-size: 24px;
         }
 
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .language-selector {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .language-option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border: 1px solid transparent;
+            border-radius: 8px;
+            background: #f5f5f5;
+            color: #333;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s, border-color 0.3s, transform 0.2s;
+        }
+
+        .language-option:hover {
+            background: #e8eaf6;
+            border-color: #667eea;
+        }
+
+        .language-option.active {
+            background: #667eea;
+            color: #fff;
+            border-color: #667eea;
+            box-shadow: 0 4px 10px rgba(102, 126, 234, 0.3);
+        }
+
+        .language-option:disabled {
+            opacity: 0.7;
+            cursor: wait;
+        }
+
+        .language-emoji {
+            font-size: 18px;
+        }
+
         .user-info {
             display: flex;
             align-items: center;
@@ -278,9 +325,19 @@
     <div class="container">
         <div class="header">
             <h1>🎤 Transkrypcja Audio</h1>
-            <div class="user-info">
-                <span class="username">👤 {{ username }}</span>
-                <a href="{{ url_for('logout') }}" class="btn-logout">Wyloguj</a>
+            <div class="header-controls">
+                <div class="language-selector" id="languageSelector" data-selected="{{ selected_language_key }}">
+                    {% for key, option in language_options.items() %}
+                    <button type="button" class="language-option {% if key == selected_language_key %}active{% endif %}" data-language-key="{{ key }}">
+                        <span class="language-emoji">{{ option['emoji'] }}</span>
+                        <span class="language-label">{{ option['label'] }}</span>
+                    </button>
+                    {% endfor %}
+                </div>
+                <div class="user-info">
+                    <span class="username">👤 {{ username }}</span>
+                    <a href="{{ url_for('logout') }}" class="btn-logout">Wyloguj</a>
+                </div>
             </div>
         </div>
 
@@ -341,6 +398,7 @@
         const sendTodoistButton = document.getElementById('sendTodoistButton');
         const todoistStatus = document.getElementById('todoistStatus');
         const spinner = document.getElementById('spinner');
+        const languageSelector = document.getElementById('languageSelector');
 
         // Funkcja do wyświetlania komunikatów
         function showStatus(message, type = 'info') {
@@ -554,6 +612,49 @@
         }
 
         sendTodoistButton.addEventListener('click', sendToTodoist);
+
+        if (languageSelector) {
+            const languageButtons = languageSelector.querySelectorAll('.language-option');
+            languageButtons.forEach((button) => {
+                button.addEventListener('click', async () => {
+                    const languageKey = button.dataset.languageKey;
+                    if (!languageKey || button.classList.contains('active')) {
+                        return;
+                    }
+
+                    languageButtons.forEach((btn) => {
+                        btn.disabled = true;
+                    });
+
+                    try {
+                        const response = await fetch('/language', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ language: languageKey })
+                        });
+
+                        const result = await response.json();
+
+                        if (response.ok && result.success) {
+                            languageButtons.forEach((btn) => btn.classList.remove('active'));
+                            button.classList.add('active');
+                            languageSelector.dataset.selected = result.language_key;
+                        } else {
+                            showStatus(`❌ Błąd zmiany języka: ${result.error || 'Nieznany błąd.'}`, 'error');
+                        }
+                    } catch (error) {
+                        console.error('Błąd zmiany języka:', error);
+                        showStatus('❌ Błąd podczas zmiany języka.', 'error');
+                    } finally {
+                        languageButtons.forEach((btn) => {
+                            btn.disabled = false;
+                        });
+                    }
+                });
+            });
+        }
 
         // Ukryj komunikat statusu na początku
         hideStatus();

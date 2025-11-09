@@ -4,7 +4,7 @@ import re
 import tempfile
 from typing import List
 
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -24,6 +24,7 @@ load_dotenv()
 openai_api_key = os.getenv('OPENAI_API_KEY')
 
 # Additional configuration
+# OPENAI_TEXT_MODEL = 'gpt-5-mini'/gpt-4o-mini
 OPENAI_TEXT_MODEL = os.getenv('OPENAI_TEXT_MODEL', 'gpt-4o-mini')
 TODO_PROMPT = os.getenv(
     'TODO_PROMPT',
@@ -35,7 +36,24 @@ TODO_PROMPT = os.getenv(
     '''
 )
 
-WHISPER_LANGUAGE = os.getenv('WHISPER_LANGUAGE')  # pozostaw puste dla autodetekcji
+LANGUAGE_OPTIONS = {
+    'US': {'code': 'en', 'label': 'English (US)', 'emoji': '🇺🇸'},
+    'PL': {'code': 'pl', 'label': 'Polski', 'emoji': '🇵🇱'},
+    'UA': {'code': 'uk', 'label': 'Українська', 'emoji': '🇺🇦'},
+}
+LANGUAGE_CODE_TO_KEY = {
+    config['code'].lower(): key for key, config in LANGUAGE_OPTIONS.items()
+}
+ENV_WHISPER_LANGUAGE = (os.getenv('WHISPER_LANGUAGE') or '').strip()
+DEFAULT_LANGUAGE_KEY = 'US'
+if ENV_WHISPER_LANGUAGE:
+    env_upper = ENV_WHISPER_LANGUAGE.upper()
+    env_lower = ENV_WHISPER_LANGUAGE.lower()
+    if env_upper in LANGUAGE_OPTIONS:
+        DEFAULT_LANGUAGE_KEY = env_upper
+    elif env_lower in LANGUAGE_CODE_TO_KEY:
+        DEFAULT_LANGUAGE_KEY = LANGUAGE_CODE_TO_KEY[env_lower]
+DEFAULT_LANGUAGE_CODE = LANGUAGE_OPTIONS[DEFAULT_LANGUAGE_KEY]['code']
 TODOIST_API_TOKEN = os.getenv('TODOIST_API_TOKEN')
 TODOIST_PROJECT_ID = os.getenv('TODOIST_PROJECT_ID')
 TODOIST_API_URL = "https://api.todoist.com/rest/v2/tasks"
@@ -55,15 +73,52 @@ USERS = {
 client = OpenAI(api_key=openai_api_key or None)
 
 
+def ensure_language_selection() -> tuple[str, str]:
+    """Ensure the session contains a supported Whisper language selection."""
+    language_key = session.get('whisper_language_key')
+    language_code = session.get('whisper_language')
+    normalized_code = (language_code or '').lower()
+
+    if language_key in LANGUAGE_OPTIONS:
+        language_code = LANGUAGE_OPTIONS[language_key]['code']
+    elif normalized_code in LANGUAGE_CODE_TO_KEY:
+        language_key = LANGUAGE_CODE_TO_KEY[normalized_code]
+        language_code = LANGUAGE_OPTIONS[language_key]['code']
+    else:
+        language_code = DEFAULT_LANGUAGE_CODE
+        language_key = LANGUAGE_CODE_TO_KEY.get(
+            language_code.lower(),
+            DEFAULT_LANGUAGE_KEY,
+        )
+
+    language_code = LANGUAGE_OPTIONS[language_key]['code']
+    session['whisper_language_key'] = language_key
+    session['whisper_language'] = language_code
+    global WHISPER_LANGUAGE
+    WHISPER_LANGUAGE = language_code
+    return language_key, language_code
+
+
+def update_language_selection(language_key: str) -> tuple[str, str]:
+    """Update the Whisper language selection in the current session."""
+    normalized_key = language_key.upper()
+    if normalized_key not in LANGUAGE_OPTIONS:
+        raise ValueError(f"Unsupported language key: {language_key}")
+    language_code = LANGUAGE_OPTIONS[normalized_key]['code']
+    session['whisper_language_key'] = normalized_key
+    session['whisper_language'] = language_code
+    return normalized_key, language_code
+
+
 def format_todo_suggestion_text(suggestion: TodoSuggestion) -> str:
     lines = [
         f"!!Project!!: {suggestion.project}",
         f"!!Task Summary!!: {suggestion.task_summary}",
-        "!!Task!!:" if len(suggestion.task) == 1 else "!!Tasks!!:",
+        "!!Tasks!!:",
     ]
 
-    if suggestion.task:
-        for item in suggestion.task:
+    if suggestion.tasks:
+        for item in suggestion.tasks:
             lines.append(f"- {item}")
     else:
         lines.append("- (brak pozycji)")
@@ -139,7 +194,7 @@ def build_structured_payload_from_sections(sections: dict[str, str]) -> dict[str
     if task_summary:
         structured["task_summary"] = task_summary
 
-    task_block = sections.get("Task") or sections.get("Tasks")
+    task_block = sections.get("Tasks")
     if task_block:
         tasks = []
         for line in task_block.splitlines():
@@ -150,7 +205,7 @@ def build_structured_payload_from_sections(sections: dict[str, str]) -> dict[str
                 stripped = stripped[1:].strip()
             tasks.append(stripped)
         if tasks:
-            structured["task"] = tasks
+            structured["tasks"] = tasks
 
     priority_raw = _strip_or_none(sections.get("Priority"))
     if priority_raw:
@@ -183,7 +238,13 @@ def index():
     """Strona główna - wymaga zalogowania"""
     if 'username' not in session:
         return redirect(url_for('login'))
-    return render_template('index.html', username=session['username'])
+    selected_key, _ = ensure_language_selection()
+    return render_template(
+        'index.html',
+        username=session['username'],
+        language_options=LANGUAGE_OPTIONS,
+        selected_language_key=selected_key,
+    )
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -214,6 +275,8 @@ def transcribe():
     """Endpoint do transkrypcji audio przez OpenAI Whisper"""
     if 'username' not in session:
         return jsonify({'error': 'Nie zalogowano'}), 401
+
+    _, selected_language_code = ensure_language_selection()
     
     if 'audio' not in request.files:
         return jsonify({'error': 'Brak pliku audio'}), 400
@@ -235,8 +298,8 @@ def transcribe():
             "response_format": "text",
         }
 
-        if WHISPER_LANGUAGE:
-            whisper_kwargs["language"] = WHISPER_LANGUAGE
+        if selected_language_code:
+            whisper_kwargs["language"] = selected_language_code
 
         with open(temp_path, 'rb') as audio:
             transcription_text = client.audio.transcriptions.create(
@@ -261,6 +324,8 @@ def transcribe():
                 project_types=list_of_project_names,
                 api_key=openai_api_key,
             )
+
+            ic(suggestion_obj)
 
             if suggestion_obj:
                 structured_payload = suggestion_obj.model_dump()
@@ -300,6 +365,30 @@ def transcribe():
         }), 500
 
 
+@app.route('/language', methods=['POST'])
+def set_language():
+    """Update the preferred Whisper transcription language based on user selection."""
+    if 'username' not in session:
+        return jsonify({'error': 'Nie zalogowano'}), 401
+
+    payload = request.get_json(silent=True) or {}
+    language_key = (payload.get('language') or '').strip()
+
+    try:
+        selected_key, selected_code = update_language_selection(language_key)
+    except ValueError:
+        return jsonify({'error': 'Nieobsługiwany język.'}), 400
+
+    selected_option = LANGUAGE_OPTIONS[selected_key]
+
+    return jsonify({
+        'success': True,
+        'language_key': selected_key,
+        'language_code': selected_code,
+        'language_label': selected_option['label'],
+    })
+
+
 @app.route('/todoist', methods=['POST'])
 def create_todoist_task():
     from icecream import ic
@@ -322,6 +411,11 @@ def create_todoist_task():
     if not TODOIST_API_TOKEN:
         return jsonify({'error': 'Brak konfiguracji klucza API Todoist.'}), 400
 
+    
+    ic(sections)
+    ic(sections['Tasks'])
+    ic(sections['Tasks'].split('- '))
+
     try:
         ic(TODOIST_PROJECT_ID)
         todoist_response = create_todoist_task_api(
@@ -335,12 +429,15 @@ def create_todoist_task():
         )
 
 
-
         list_of_tasks = sections['Tasks'].split('- ')
         list_of_tasks = [task for task in list_of_tasks if task.strip()] #cleans empty spaces between tasks
+        ic(list_of_tasks)
+
 
         if len(list_of_tasks) > 0:
             todoist_parent_id = todoist_response.get('id')
+            ic(list_of_tasks)
+            ic(todoist_parent_id)
             for subtask in list_of_tasks:
                 subtask = subtask.strip()
                 subtask_response = create_todoist_task_api(

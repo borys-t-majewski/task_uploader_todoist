@@ -17,7 +17,7 @@ class TodoSuggestion(BaseModel):
         description="Project label. Prefix with NEWPROJECT if it is not in the provided list or explicitly new.",
     )
     task_summary: str = Field(..., description="Succinct summary of the task.")
-    task: list[str] = Field(
+    tasks: list[str] = Field(
         ...,
         description="List of clear, actionable to-do items for executing the task.",
     )
@@ -29,7 +29,7 @@ class TodoSuggestion(BaseModel):
     )
     due_date: str = Field(
         ...,
-        description=f"Due date. Format: YYYY-MM-DD. Consider today's date: {datetime.now().strftime('%Y-%m-%d')}. Consider that if timeline is before today, then you should use next year. If there's no info about due date, consider +3 days from current date.",
+        description=f"Due date. Format: YYYY-MM-DD. Consider today's date: {datetime.now().strftime('%Y-%m-%d')}. Consider that if timeline is before today, then you should use next year.",
     )
     labels: list[str] = Field(
         ...,
@@ -55,17 +55,20 @@ def _build_instruction_prompt(project_types: Sequence[str]) -> str:
         )
         allowed_projects = ""
 
-    return (
+    print('MAIN INSTRUCTION PROMPT')
+    main_instruction_prompt = (
         "You are an expert productivity assistant. Read the provided transcript and produce a structured summary.\n"
-        f"{project_clause}\n"
-        "Return the output with the following fields: project, task_summary, task, priority.\n"
-        "- project: string value.\n"
+        "Return the output with the following fields: project, task_summary, tasks, priority.\n"
+        "- project: string value. One of values from allowed list below:\n"
+        f"{allowed_projects}\n"
         "- task_summary: 1-2 sentence summary of the overall task.\n"
-        "- task: array of concise, actionable to-do items (each item is a short sentence).\n"
+        "- tasks: array of concise, actionable to-do items (each item is a short sentence).\n"
         "- priority: integer 1-4, where 1 is highest priority, 4 is lowest. Default to 4 when unspecified.\n"
         "Ensure the project string contains NEWPROJECT prefix when the transcript implies a new project or the project is not in the allowed list.\n"
-        f"{allowed_projects}"
+        f"{project_clause}\n"  
     )
+    print(main_instruction_prompt)
+    return main_instruction_prompt
 
 
 def generate_todo_suggestions(
