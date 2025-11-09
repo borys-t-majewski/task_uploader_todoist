@@ -416,9 +416,8 @@
         </div>
     </div>
 
-    <script>
-        window.todoistProjects = {{ todoist_projects | tojson }};
-        window.todoistProjectsError = {{ todoist_projects_error | tojson }};
+    <script id="todoistBootstrap" type="application/json">
+        {{ {'projects': todoist_projects or [], 'error': todoist_projects_error} | tojson }}
     </script>
 
     <script>
@@ -441,9 +440,25 @@
         const languageSelector = document.getElementById('languageSelector');
         const projectSelect = document.getElementById('projectSelect');
         const projectStatus = document.getElementById('projectStatus');
-        let todoistProjects = Array.isArray(window.todoistProjects) ? [...window.todoistProjects] : [];
+        const todoistBootstrapElement = document.getElementById('todoistBootstrap');
+        let todoistProjects = [];
         let assistantStructured = null;
-        const initialProjectsError = window.todoistProjectsError || null;
+        let initialProjectsError = null;
+
+        if (todoistBootstrapElement) {
+            try {
+                const bootstrapData = JSON.parse(todoistBootstrapElement.textContent || '{}');
+                if (Array.isArray(bootstrapData.projects)) {
+                    todoistProjects = [...bootstrapData.projects];
+                }
+                if (bootstrapData.error) {
+                    initialProjectsError = bootstrapData.error;
+                }
+            } catch (error) {
+                console.error('Błąd parsowania danych projektów Todoist:', error);
+                initialProjectsError = 'Nie udało się wczytać listy projektów Todoist.';
+            }
+        }
 
         // Funkcja do wyświetlania komunikatów
         function showStatus(message, type = 'info') {
@@ -475,8 +490,70 @@
             sendTodoistButton.disabled = !(hasContent && hasProject);
         }
 
+        const SPECIAL_PROJECT_PREFIXES = ['newproject', 'unknownproject'];
+
         function normalizeProjectName(name) {
-            return (name || '').toString().trim().toLowerCase();
+            if (!name) {
+                return '';
+            }
+
+            return name
+                .toString()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/[^a-zA-Z0-9]+/g, ' ')
+                .trim()
+                .toLowerCase();
+        }
+
+        function isSpecialProjectName(name) {
+            const normalized = normalizeProjectName(name);
+            return SPECIAL_PROJECT_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+        }
+
+        function setSelectedProject(projectId, { projectName = '', source = 'manual', showStatus = true } = {}) {
+            if (!projectSelect) {
+                return;
+            }
+
+            const normalizedId = projectId ? String(projectId) : '';
+            const matchingOption = Array.from(projectSelect.options || []).find(
+                (option) => option.value === normalizedId
+            );
+
+            if (!matchingOption) {
+                return;
+            }
+
+            projectSelect.value = normalizedId;
+
+            if (assistantStructured) {
+                assistantStructured.project_id = normalizedId;
+                const resolvedName =
+                    projectName ||
+                    matchingOption.dataset.name ||
+                    matchingOption.textContent ||
+                    '';
+                if (resolvedName) {
+                    assistantStructured.project = resolvedName.trim();
+                }
+            }
+
+            updateSendButtonState();
+
+            if (showStatus && projectStatus) {
+                const displayName =
+                    projectName ||
+                    matchingOption.dataset.name ||
+                    matchingOption.textContent ||
+                    '';
+                const statusSuffix = source === 'suggestion' ? ' (na podstawie sugestii).' : '.';
+                updateInlineStatus(
+                    projectStatus,
+                    `Wybrano projekt: ${displayName.trim()}${statusSuffix}`,
+                    'success'
+                );
+            }
         }
 
         function populateProjectDropdown(projects) {
@@ -538,6 +615,9 @@
                 return;
             }
             projectSelect.value = '';
+            if (assistantStructured && Object.prototype.hasOwnProperty.call(assistantStructured, 'project_id')) {
+                delete assistantStructured.project_id;
+            }
             updateSendButtonState();
         }
 
@@ -546,18 +626,80 @@
                 return;
             }
 
-            if (!structured || !structured.project) {
+            if (!structured) {
+                updateSendButtonState();
+                return;
+            }
+
+            if (structured.project_id) {
+                const incomingId = String(structured.project_id);
+                const hasMatchingId = todoistProjects.some(
+                    (project) => String(project.id) === incomingId
+                );
+                if (hasMatchingId) {
+                    setSelectedProject(incomingId, {
+                        source: 'suggestion',
+                        showStatus: true,
+                    });
+                    return;
+                }
+            }
+
+            if (!structured.project) {
+                updateSendButtonState();
+                return;
+            }
+
+            if (isSpecialProjectName(structured.project)) {
+                if (projectStatus && todoistProjects.length > 0) {
+                    updateInlineStatus(
+                        projectStatus,
+                        'Sugestia wskazała nowy lub nieznany projekt. Wybierz projekt ręcznie.',
+                        'info'
+                    );
+                }
                 updateSendButtonState();
                 return;
             }
 
             const targetName = normalizeProjectName(structured.project);
-            const matchingProject = todoistProjects.find(
-                (project) => project && normalizeProjectName(project.name) === targetName
+            if (!targetName) {
+                updateSendButtonState();
+                return;
+            }
+
+            const availableProjects = todoistProjects.filter(
+                (project) => project && project.name !== undefined && project.id !== undefined
             );
 
+            const exactMatch = availableProjects.find(
+                (project) => normalizeProjectName(project.name) === targetName
+            );
+
+            let matchingProject = exactMatch;
+
+            if (!matchingProject) {
+                matchingProject = availableProjects.find((project) => {
+                    const normalizedProjectName = normalizeProjectName(project.name);
+                    return (
+                        normalizedProjectName &&
+                        (normalizedProjectName.includes(targetName) || targetName.includes(normalizedProjectName))
+                    );
+                });
+            }
+
             if (matchingProject) {
-                projectSelect.value = String(matchingProject.id);
+                setSelectedProject(matchingProject.id, {
+                    projectName: matchingProject.name,
+                    source: 'suggestion',
+                    showStatus: true,
+                });
+            } else if (projectStatus && todoistProjects.length > 0) {
+                updateInlineStatus(
+                    projectStatus,
+                    'Nie znaleziono projektu pasującego do sugestii. Wybierz go ręcznie.',
+                    'info'
+                );
             }
 
             updateSendButtonState();
@@ -620,6 +762,9 @@
                 assistantText.value = '';
                 assistantStructured = null;
                 resetProjectSelection();
+                if (projectStatus) {
+                    clearInlineStatus(projectStatus);
+                }
                 
             } catch (error) {
                 console.error('Błąd dostępu do mikrofonu:', error);
@@ -655,6 +800,9 @@
             assistantText.value = '';
             assistantStructured = null;
             resetProjectSelection();
+            if (projectStatus) {
+                clearInlineStatus(projectStatus);
+            }
             
             try {
                 const response = await fetch('/transcribe', {
@@ -775,6 +923,42 @@
         if (projectSelect) {
             projectSelect.addEventListener('change', () => {
                 clearInlineStatus(todoistStatus);
+                const selectedValue = projectSelect.value.trim();
+                const selectedOption = projectSelect.options[projectSelect.selectedIndex] || null;
+
+                if (assistantStructured) {
+                    if (selectedValue) {
+                        assistantStructured.project_id = selectedValue;
+                        if (selectedOption) {
+                            const label =
+                                selectedOption.dataset.name ||
+                                selectedOption.textContent ||
+                                '';
+                            if (label) {
+                                assistantStructured.project = label.trim();
+                            }
+                        }
+                    } else if (Object.prototype.hasOwnProperty.call(assistantStructured, 'project_id')) {
+                        delete assistantStructured.project_id;
+                    }
+                }
+
+                if (projectStatus) {
+                    if (selectedValue && selectedOption) {
+                        const label =
+                            selectedOption.dataset.name ||
+                            selectedOption.textContent ||
+                            '';
+                        if (label) {
+                            updateInlineStatus(projectStatus, `Wybrano projekt: ${label.trim()}.`, 'success');
+                        } else {
+                            clearInlineStatus(projectStatus);
+                        }
+                    } else {
+                        clearInlineStatus(projectStatus);
+                    }
+                }
+
                 updateSendButtonState();
             });
         }
