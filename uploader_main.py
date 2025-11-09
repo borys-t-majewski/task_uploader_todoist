@@ -1,17 +1,19 @@
 from __future__ import annotations
+
 import ast
 import os
 import re
 import tempfile
-from typing import List
+from pathlib import Path
 
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
-from werkzeug.security import check_password_hash, generate_password_hash
 from openai import OpenAI
 from dotenv import load_dotenv
+from werkzeug.security import check_password_hash
 
 from icecream import ic
 
+from account_config import AccountSettings, load_account_configs
 from todo_suggestions import TodoSuggestion, generate_todo_suggestions
 from todoist_tasks import TodoistError, create_todoist_task_api
 from list_todoist_projects import list_projects
@@ -22,21 +24,16 @@ app.secret_key = os.urandom(24)  # Generuj losowy klucz sesji
 # Load environment variables from .env file
 load_dotenv()
 
-# Configure OpenAI API Key
-openai_api_key = os.getenv('OPENAI_API_KEY')
-
-# Additional configuration
-# OPENAI_TEXT_MODEL = 'gpt-5-mini'/gpt-4o-mini
-OPENAI_TEXT_MODEL = os.getenv('OPENAI_TEXT_MODEL', 'gpt-4o-mini')
-TODO_PROMPT = os.getenv(
-    'TODO_PROMPT',
-    '''
-    You are an expert productivity assistant. Read the provided transcript. 
-    Check if 
-    and extract clear, concise, actionable to-do items. Return them as a numbered list.
-
-    '''
-)
+ACCOUNTS_FILE = Path(os.getenv("ACCOUNTS_FILE", "accounts.json"))
+try:
+    ACCOUNTS = load_account_configs(ACCOUNTS_FILE)
+except FileNotFoundError as exc:
+    raise RuntimeError(
+        f"Accounts configuration file not found at '{ACCOUNTS_FILE}'. "
+        "Create it (e.g. by copying 'accounts.example.json')."
+    ) from exc
+except Exception as exc:  # noqa: BLE001
+    raise RuntimeError(f"Failed to load account configuration: {exc}") from exc
 
 LANGUAGE_OPTIONS = {
     'US': {'code': 'en', 'label': 'English (US)', 'emoji': '🇺🇸'},
@@ -46,33 +43,54 @@ LANGUAGE_OPTIONS = {
 LANGUAGE_CODE_TO_KEY = {
     config['code'].lower(): key for key, config in LANGUAGE_OPTIONS.items()
 }
-ENV_WHISPER_LANGUAGE = (os.getenv('WHISPER_LANGUAGE') or '').strip()
-DEFAULT_LANGUAGE_KEY = 'US'
-if ENV_WHISPER_LANGUAGE:
-    env_upper = ENV_WHISPER_LANGUAGE.upper()
-    env_lower = ENV_WHISPER_LANGUAGE.lower()
-    if env_upper in LANGUAGE_OPTIONS:
-        DEFAULT_LANGUAGE_KEY = env_upper
-    elif env_lower in LANGUAGE_CODE_TO_KEY:
-        DEFAULT_LANGUAGE_KEY = LANGUAGE_CODE_TO_KEY[env_lower]
-DEFAULT_LANGUAGE_CODE = LANGUAGE_OPTIONS[DEFAULT_LANGUAGE_KEY]['code']
-TODOIST_API_TOKEN = os.getenv('TODOIST_API_TOKEN')
-TODOIST_PROJECT_ID = os.getenv('TODOIST_PROJECT_ID')
+
+FALLBACK_LANGUAGE_KEY = 'US'
 TODOIST_API_URL = "https://api.todoist.com/rest/v2/tasks"
-PROJECT_TYPES: List[str] = [
-    value.strip() for value in os.getenv('PROJECT_TYPES', '').split(',') if value.strip()
-]
 
 
-def fetch_todoist_projects() -> tuple[list[dict[str, object]], list[str], str | None]:
+def get_account_settings_for_session() -> AccountSettings:
+    """Return configuration for the currently authenticated user."""
+    username = session.get('username')
+    if not username:
+        raise RuntimeError("Brak aktywnej sesji użytkownika.")
+    account = ACCOUNTS.get(username)
+    if not account:
+        raise RuntimeError(f"Nie znaleziono konfiguracji dla użytkownika: {username}")
+    return account
+
+
+def derive_default_language_key(account: AccountSettings) -> str:
+    """Resolve the default Whisper language key for a given account."""
+    preferred = (account.whisper_language or "").strip()
+    if not preferred:
+        return FALLBACK_LANGUAGE_KEY
+
+    upper = preferred.upper()
+    lower = preferred.lower()
+
+    if upper in LANGUAGE_OPTIONS:
+        return upper
+    if lower in LANGUAGE_CODE_TO_KEY:
+        return LANGUAGE_CODE_TO_KEY[lower]
+
+    return FALLBACK_LANGUAGE_KEY
+
+
+def fetch_todoist_projects(api_token: str | None) -> tuple[list[dict[str, object]], list[str], str | None]:
     """Retrieve Todoist projects and corresponding names for the authenticated user.
+
+    Args:
+        api_token: Todoist API token for the current account.
 
     Returns:
         Tuple containing the list of project dictionaries, the list of project
         names, and an optional error message if loading failed.
     """
+    if not api_token:
+        return [], [], "Brak konfiguracji klucza API Todoist."
+
     try:
-        projects_iterable = list_projects()
+        projects_iterable = list_projects(api_token=api_token)
     except Exception as exc:  # noqa: BLE001
         app.logger.warning("Failed to load Todoist projects: %s", exc)
         return [], [], str(exc)
@@ -89,19 +107,7 @@ def fetch_todoist_projects() -> tuple[list[dict[str, object]], list[str], str | 
 
     return projects, project_names, None
 
-# Predefiniowane konta użytkowników (login: hasło zahashowane)
-USERS = {
-    'admin': generate_password_hash('admin123'),
-    'user1': generate_password_hash('haslo123'),
-    'demo': generate_password_hash('demo123')
-}
-
-# Konfiguracja OpenAI client dla Whisper API
-# LangChain nie ma bezpośredniej integracji z Whisper, więc używamy standardowego klienta
-client = OpenAI(api_key=openai_api_key or None)
-
-
-def ensure_language_selection() -> tuple[str, str]:
+def ensure_language_selection(account: AccountSettings) -> tuple[str, str]:
     """Ensure the session contains a supported Whisper language selection."""
     language_key = session.get('whisper_language_key')
     language_code = session.get('whisper_language')
@@ -113,17 +119,12 @@ def ensure_language_selection() -> tuple[str, str]:
         language_key = LANGUAGE_CODE_TO_KEY[normalized_code]
         language_code = LANGUAGE_OPTIONS[language_key]['code']
     else:
-        language_code = DEFAULT_LANGUAGE_CODE
-        language_key = LANGUAGE_CODE_TO_KEY.get(
-            language_code.lower(),
-            DEFAULT_LANGUAGE_KEY,
-        )
+        default_key = derive_default_language_key(account)
+        language_key = default_key
+        language_code = LANGUAGE_OPTIONS[language_key]['code']
 
-    language_code = LANGUAGE_OPTIONS[language_key]['code']
     session['whisper_language_key'] = language_key
     session['whisper_language'] = language_code
-    global WHISPER_LANGUAGE
-    WHISPER_LANGUAGE = language_code
     return language_key, language_code
 
 
@@ -266,8 +267,16 @@ def index():
     """Strona główna - wymaga zalogowania"""
     if 'username' not in session:
         return redirect(url_for('login'))
-    selected_key, _ = ensure_language_selection()
-    todoist_projects, _, projects_error = fetch_todoist_projects()
+
+    try:
+        account = get_account_settings_for_session()
+    except RuntimeError as exc:
+        app.logger.error("Account configuration error: %s", exc)
+        session.pop('username', None)
+        return redirect(url_for('login'))
+
+    selected_key, _ = ensure_language_selection(account)
+    todoist_projects, _, projects_error = fetch_todoist_projects(account.todoist_api_token)
     return render_template(
         'index.html',
         username=session['username'],
@@ -284,9 +293,12 @@ def login():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-        
-        if username in USERS and check_password_hash(USERS[username], password):
-            session['username'] = username
+
+        account = ACCOUNTS.get((username or '').strip())
+        if account and check_password_hash(account.password_hash, password or ''):
+            session['username'] = account.username
+            session.pop('whisper_language_key', None)
+            session.pop('whisper_language', None)
             return redirect(url_for('index'))
         else:
             return render_template('login.html', error='Nieprawidłowa nazwa użytkownika lub hasło')
@@ -297,7 +309,7 @@ def login():
 @app.route('/logout')
 def logout():
     """Wylogowanie użytkownika"""
-    session.pop('username', None)
+    session.clear()
     return redirect(url_for('login'))
 
 
@@ -306,24 +318,34 @@ def transcribe():
     """Endpoint do transkrypcji audio przez OpenAI Whisper"""
     if 'username' not in session:
         return jsonify({'error': 'Nie zalogowano'}), 401
+    try:
+        account = get_account_settings_for_session()
+    except RuntimeError as exc:
+        app.logger.error("Account configuration error: %s", exc)
+        return jsonify({'error': 'Brak konfiguracji konta użytkownika.'}), 500
 
-    _, selected_language_code = ensure_language_selection()
-    
+    if not account.openai_api_key:
+        return jsonify({'error': 'Brak konfiguracji klucza OpenAI dla bieżącego konta.'}), 400
+
+    _, selected_language_code = ensure_language_selection(account)
+
     if 'audio' not in request.files:
         return jsonify({'error': 'Brak pliku audio'}), 400
-    
+
     audio_file = request.files['audio']
-    
+
     if audio_file.filename == '':
         return jsonify({'error': 'Nie wybrano pliku'}), 400
-    
+
+    temp_path: str | None = None
+
     try:
-        # Zapisz plik tymczasowo
         with tempfile.NamedTemporaryFile(delete=False, suffix='.webm') as temp_file:
             audio_file.save(temp_file.name)
             temp_path = temp_file.name
-        
-        # Wyślij do OpenAI Whisper
+
+        client = OpenAI(api_key=account.openai_api_key)
+
         whisper_kwargs = {
             "model": "whisper-1",
             "response_format": "text",
@@ -341,23 +363,24 @@ def transcribe():
         generated_text = ""
         generation_error = None
         structured_payload = None
-        list_of_projects: list[dict[str, object]] = []
-        list_of_project_names: list[str] = []
-        project_fetch_error: str | None = None
 
-        list_of_projects, list_of_project_names, project_fetch_error = fetch_todoist_projects()
+        list_of_projects, list_of_project_names, project_fetch_error = fetch_todoist_projects(
+            account.todoist_api_token
+        )
         ic(list_of_project_names)
 
-        if project_fetch_error:
+        project_types_for_prompt = list_of_project_names or account.project_types
+
+        if project_fetch_error and not project_types_for_prompt:
             generation_error = project_fetch_error
         else:
             try:
                 suggestion_obj = generate_todo_suggestions(
                     transcription_text,
-                    prompt=TODO_PROMPT,
-                    model=OPENAI_TEXT_MODEL,
-                    project_types=list_of_project_names,
-                    api_key=openai_api_key,
+                    prompt=account.todo_prompt,
+                    model=account.openai_text_model,
+                    project_types=project_types_for_prompt,
+                    api_key=account.openai_api_key,
                 )
 
                 ic(suggestion_obj)
@@ -369,10 +392,7 @@ def transcribe():
                     generated_text = ""
             except Exception as gen_exc:  # noqa: BLE001
                 generation_error = str(gen_exc)
-        
-        # Usuń plik tymczasowy
-        os.unlink(temp_path)
-        
+
         response_payload = {
             'success': True,
             'transcription': transcription_text,
@@ -393,15 +413,15 @@ def transcribe():
             )
 
         return jsonify(response_payload)
-    
-    except Exception as e:
-        # Usuń plik tymczasowy w przypadku błędu
-        if 'temp_path' in locals() and os.path.exists(temp_path):
-            os.unlink(temp_path)
-        
+
+    except Exception as exc:  # noqa: BLE001
+        app.logger.exception("Błąd podczas transkrypcji: %s", exc)
         return jsonify({
-            'error': f'Błąd podczas transkrypcji: {str(e)}'
+            'error': f'Błąd podczas transkrypcji: {exc}'
         }), 500
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.unlink(temp_path)
 
 
 @app.route('/language', methods=['POST'])
@@ -435,6 +455,15 @@ def create_todoist_task():
     if 'username' not in session:
         return jsonify({'error': 'Nie zalogowano'}), 401
 
+    try:
+        account = get_account_settings_for_session()
+    except RuntimeError as exc:
+        app.logger.error("Account configuration error: %s", exc)
+        return jsonify({'error': 'Brak konfiguracji konta użytkownika.'}), 500
+
+    if not account.todoist_api_token:
+        return jsonify({'error': 'Brak konfiguracji klucza API Todoist.'}), 400
+
     payload = request.get_json(silent=True) or {}
     content = (payload.get('content') or '').strip()
     structured_payload = payload.get('structured')
@@ -452,14 +481,13 @@ def create_todoist_task():
     if not content:
         return jsonify({'error': 'Treść zadania nie może być pusta.'}), 400
 
-    if not TODOIST_API_TOKEN:
-        return jsonify({'error': 'Brak konfiguracji klucza API Todoist.'}), 400
+    default_project_id = (account.todoist_project_id or '').strip()
 
-    if not project_id and not TODOIST_PROJECT_ID:
+    if not project_id and not default_project_id:
         return jsonify({'error': 'Brak wybranego projektu Todoist.'}), 400
 
     if not project_id:
-        project_id = str(TODOIST_PROJECT_ID or '').strip()
+        project_id = default_project_id
 
     
     ic(sections)
@@ -468,10 +496,9 @@ def create_todoist_task():
     ic(tasks_section.split('- ') if tasks_section else [])
 
     try:
-        ic(TODOIST_PROJECT_ID)
         todoist_response = create_todoist_task_api(
             sections['Task Summary'],
-            api_token=TODOIST_API_TOKEN,
+            api_token=account.todoist_api_token,
             project_id=project_id,
             api_url=TODOIST_API_URL,
             priority=structured_payload.get('priority'),
@@ -493,7 +520,7 @@ def create_todoist_task():
                 subtask = subtask.strip()
                 subtask_response = create_todoist_task_api(
                     subtask,
-                    api_token=TODOIST_API_TOKEN,
+                    api_token=account.todoist_api_token,
                     project_id=project_id,
                     api_url=TODOIST_API_URL,
                     parent_id=todoist_parent_id,

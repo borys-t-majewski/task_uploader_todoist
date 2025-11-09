@@ -26,3 +26,6 @@ instance/
 .DS_Store
 Thumbs.db
 
+# Local account configuration
+accounts.json
+

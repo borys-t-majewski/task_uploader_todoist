@@ -4,7 +4,7 @@ Aplikacja webowa w Pythonie wykorzystująca Flask i OpenAI Whisper do nagrywania
 
 ## 📋 Funkcjonalności
 
-- ✅ Logowanie do konta (predefiniowane użytkownicy)
+- ✅ Logowanie do kont kontrowanych przez `accounts.json`
 - ✅ Nagrywanie audio bezpośrednio w przeglądarce (do 60 sekund)
 - ✅ Automatyczna transkrypcja za pomocą OpenAI Whisper API
 - ✅ Automatyczne generowanie sugestii z modelu tekstowego (edycja w dodatkowym polu)
@@ -21,50 +21,12 @@ Aplikacja webowa w Pythonie wykorzystująca Flask i OpenAI Whisper do nagrywania
 pip install -r requirements.txt
 ```
 
-3. Skonfiguruj klucze i zmienne środowiskowe:
-   
-   **Opcja A: Plik .env (zalecane)**
-   - Skopiuj plik `env.example` jako `.env`
-   - Edytuj plik `.env` i wpisz swój klucz API (oraz opcjonalne ustawienia):
-   ```
-   OPENAI_API_KEY=sk-twoj-klucz-api-tutaj
-   OPENAI_TEXT_MODEL=gpt-4o-mini
-   TODO_PROMPT=You are an expert productivity assistant...
-   TODOIST_API_TOKEN=todoist-xxx
-   TODOIST_PROJECT_ID=
-   WHISPER_LANGUAGE=pl
-   PROJECT_TYPES=Sales,Marketing,Support
-   ```
+3. Skonfiguruj konta i ustawienia:
 
-   **Opcja B: Zmienna środowiskowa**
-   ```bash
-   # Windows PowerShell
-   $env:OPENAI_API_KEY="twoj-klucz-api"
-   $env:OPENAI_TEXT_MODEL="gpt-4o-mini"
-   $env:TODO_PROMPT="You are an expert productivity assistant..."
-   $env:TODOIST_API_TOKEN="todoist-xxx"
-   $env:TODOIST_PROJECT_ID=""
-   $env:WHISPER_LANGUAGE="pl"
-   $env:PROJECT_TYPES="Sales,Marketing,Support"
-
-   # Windows CMD
-   set OPENAI_API_KEY=twoj-klucz-api
-   set OPENAI_TEXT_MODEL=gpt-4o-mini
-   set TODO_PROMPT=You are an expert productivity assistant...
-   set TODOIST_API_TOKEN=todoist-xxx
-   set TODOIST_PROJECT_ID=
-   set WHISPER_LANGUAGE=pl
-   set PROJECT_TYPES=Sales,Marketing,Support
-
-   # Linux/Mac
-   export OPENAI_API_KEY="twoj-klucz-api"
-   export OPENAI_TEXT_MODEL="gpt-4o-mini"
-   export TODO_PROMPT="You are an expert productivity assistant..."
-   export TODOIST_API_TOKEN="todoist-xxx"
-   export TODOIST_PROJECT_ID=""
-   export WHISPER_LANGUAGE="pl"
-   export PROJECT_TYPES="Sales,Marketing,Support"
-   ```
+   - Skopiuj plik `accounts.example.json` jako `accounts.json`. Plik z realnymi danymi jest ignorowany przez Git.
+   - Dla każdego konta uzupełnij pola `username` oraz `password` **lub** `password_hash`. Wartość z `password` zostanie automatycznie zhashowana przy starcie aplikacji.
+   - W sekcji `settings` przypisz indywidualne klucze i ustawienia, np. `openai_api_key`, `todoist_api_token`, `whisper_language`, `project_types`.
+   - Opcjonalnie ustaw zmienną środowiskową `ACCOUNTS_FILE`, aby wskazać alternatywną lokalizację pliku konfiguracyjnego.
 
 ## 🚀 Uruchomienie
 
@@ -75,19 +37,13 @@ python uploader_main.py
 
 Aplikacja będzie dostępna pod adresem: `http://localhost:5000`
 
-## 👤 Konta Testowe
+## 👤 Konfiguracja kont
 
-Aplikacja posiada predefiniowane konta:
-
-| Użytkownik | Hasło |
-|-----------|--------|
-| admin | admin123 |
-| user1 | haslo123 |
-| demo | demo123 |
+Lista kont znajduje się w pliku `accounts.json`. Możesz rozpocząć od skopiowania `accounts.example.json` i uzupełnienia własnych danych logowania oraz kluczy API.
 
 ## 📝 Jak używać
 
-1. Zaloguj się używając jednego z kont testowych
+1. Zaloguj się używając danych konta z `accounts.json`
 2. Kliknij przycisk mikrofonu aby rozpocząć nagrywanie
 3. Mów przez maksymalnie 60 sekund
 4. Kliknij ponownie aby zakończyć nagrywanie
@@ -104,11 +60,11 @@ Aplikacja posiada predefiniowane konta:
 
 ## 🔄 Integracja z Todoist
 
-- Ustaw zmienną `TODOIST_API_TOKEN` (wymagany klucz API Todoist)
-- Opcjonalnie ustaw `TODOIST_PROJECT_ID`, aby zadania trafiały do konkretnego projektu
-- Tekst z drugiego pola jest wysyłany jako treść zadania; możesz go edytować przed wysyłką
-- W przypadku błędu odpowiedni komunikat pojawi się pod przyciskiem
-- Zmienna `PROJECT_TYPES` pozwala kontrolować dostępne typy projektów; jeśli transkrypt wykracza poza listę, prefiks `NEWPROJECT` zostanie dodany automatycznie
+- W pliku `accounts.json` przypisz `todoist_api_token` dla wybranego konta (klucz obowiązkowy).
+- Opcjonalnie ustaw `todoist_project_id`, aby zadania trafiały domyślnie do konkretnego projektu.
+- Tekst z drugiego pola jest wysyłany jako treść zadania; możesz go edytować przed wysyłką.
+- Komunikaty o błędach pojawią się automatycznie przy próbie wysyłki.
+- Pole `project_types` może ograniczać listę dopuszczalnych projektów używaną w promptach, gdy pobieranie projektów z Todoist nie jest możliwe.
 
 ## ⚠️ Wymagania
 
@@ -121,6 +77,7 @@ Aplikacja posiada predefiniowane konta:
 
 - Sesje użytkowników są zabezpieczone kluczem sesji
 - Hasła są hashowane przy użyciu werkzeug.security
+- Plik `accounts.json` jest ignorowany przez Git — przechowuj go w bezpiecznej lokalizacji i ogranicz dostęp
 - Pliki audio są tymczasowe i automatycznie usuwane po transkrypcji
 
 ## 📂 Struktura Projektu
@@ -141,7 +98,7 @@ task_uploader/
 
 ## 💡 Uwagi
 
-- Transkrypcja jest automatycznie ustawiona na język polski (można zmienić w `uploader_main.py`)
+- Domyślny język transkrypcji konfigurujesz w `accounts.json` polem `whisper_language`
 - Maksymalny czas nagrania to 60 sekund
 - Pliki audio są zapisywane tymczasowo w formacie WebM
 

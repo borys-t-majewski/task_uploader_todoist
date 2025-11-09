@@ -1,0 +1,22 @@
+{
+  "accounts": [
+    {
+      "username": "admin",
+      "password": "change-me",
+      "settings": {
+        "openai_api_key": "sk-your-openai-key",
+        "openai_text_model": "gpt-4o-mini",
+        "todo_prompt": "You are an expert productivity assistant. Read the provided transcript and extract concise, actionable to-do items. Return them as a numbered list.",
+        "whisper_language": "pl",
+        "todoist_api_token": "todoist-api-token",
+        "todoist_project_id": "1234567890",
+        "project_types": [
+          "Sales",
+          "Marketing",
+          "Support"
+        ]
+      }
+    }
+  ]
+}
+
