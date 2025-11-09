@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import logging
+from datetime import datetime
 from typing import Optional, Sequence
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
-from datetime import datetime
+
+logger = logging.getLogger(__name__)
+
 
 class TodoSuggestion(BaseModel):
     """Structured representation of AI-generated to-do suggestion."""
@@ -38,11 +42,9 @@ class TodoSuggestion(BaseModel):
 
 def _build_instruction_prompt(project_types: Sequence[str]) -> str:
     if project_types:
-        print('project_types')
-        print(project_types)
+        logger.debug("project_types: %s", project_types)
         projects_section = "\n".join(f"- {name}" for name in project_types)
-        print('projects_section')
-        print(projects_section)
+        logger.debug("projects_section: %s", projects_section)
         project_clause = (
             "Project must explicitly match one of the allowed project types listed below. "
             "If nothing matches, write UNKNOWNPROJECT."\
@@ -55,7 +57,7 @@ def _build_instruction_prompt(project_types: Sequence[str]) -> str:
         )
         allowed_projects = ""
 
-    print('MAIN INSTRUCTION PROMPT')
+    logger.debug("MAIN INSTRUCTION PROMPT")
     main_instruction_prompt = (
         "You are an expert productivity assistant. Read the provided transcript and produce a structured summary.\n"
         "Return the output with the following fields: project, task_summary, tasks, priority.\n"
@@ -67,7 +69,7 @@ def _build_instruction_prompt(project_types: Sequence[str]) -> str:
         "Ensure the project string contains NEWPROJECT prefix when the transcript implies a new project or the project is not in the allowed list.\n"
         f"{project_clause}\n"  
     )
-    print(main_instruction_prompt)
+    logger.debug("instruction_prompt: %s", main_instruction_prompt)
     return main_instruction_prompt
 
 

@@ -65,8 +65,6 @@ def create_todoist_task_api(
         timeout=timeout,
     )
 
-    # ic(response.json())
-
     if response.status_code not in (200, 201):
         raise TodoistError(response.status_code, response.text)
 

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Iterable, Mapping
 
 import requests
 
 TODOIST_PROJECTS_URL = "https://api.todoist.com/rest/v2/projects"
+
+logger = logging.getLogger(__name__)
 
 
 class TodoistError(RuntimeError):
@@ -39,9 +42,8 @@ def list_projects(api_token: str | None = None) -> Iterable[Mapping[str, object]
         On networking issues.
     """
 
-
     token = api_token or os.getenv("TODOIST_API_TOKEN")
-    
+
     if not token:
         raise ValueError(
             "Todoist API token is missing. Pass it explicitly or set TODOIST_API_TOKEN environment variable."
@@ -68,9 +70,11 @@ def list_projects(api_token: str | None = None) -> Iterable[Mapping[str, object]
 
 if __name__ == "__main__":
     from dotenv import load_dotenv
+
+    logging.basicConfig(level=logging.INFO)
     load_dotenv()
     try:
         projects = list_projects()
-        print(json.dumps(projects, indent=2, ensure_ascii=False))
+        logger.info(json.dumps(projects, indent=2, ensure_ascii=False))
     except Exception as exc:  # noqa: BLE001
-        print(f"Error: {exc}")
+        logger.error("Error: %s", exc)
