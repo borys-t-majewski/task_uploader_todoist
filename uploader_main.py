@@ -1,3 +1,4 @@
+from __future__ import annotations
 import ast
 import os
 import re
@@ -10,6 +11,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 
 from icecream import ic
+
 from todo_suggestions import TodoSuggestion, generate_todo_suggestions
 from todoist_tasks import TodoistError, create_todoist_task_api
 from list_todoist_projects import list_projects
@@ -60,6 +62,32 @@ TODOIST_API_URL = "https://api.todoist.com/rest/v2/tasks"
 PROJECT_TYPES: List[str] = [
     value.strip() for value in os.getenv('PROJECT_TYPES', '').split(',') if value.strip()
 ]
+
+
+def fetch_todoist_projects() -> tuple[list[dict[str, object]], list[str], str | None]:
+    """Retrieve Todoist projects and corresponding names for the authenticated user.
+
+    Returns:
+        Tuple containing the list of project dictionaries, the list of project
+        names, and an optional error message if loading failed.
+    """
+    try:
+        projects_iterable = list_projects()
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning("Failed to load Todoist projects: %s", exc)
+        return [], [], str(exc)
+
+    projects: list[dict[str, object]] = [
+        project for project in projects_iterable if isinstance(project, dict)
+    ]
+
+    project_names: list[str] = [
+        str(project.get('name', '')).strip()
+        for project in projects
+        if str(project.get('name', '')).strip()
+    ]
+
+    return projects, project_names, None
 
 # Predefiniowane konta użytkowników (login: hasło zahashowane)
 USERS = {
@@ -239,11 +267,14 @@ def index():
     if 'username' not in session:
         return redirect(url_for('login'))
     selected_key, _ = ensure_language_selection()
+    todoist_projects, _, projects_error = fetch_todoist_projects()
     return render_template(
         'index.html',
         username=session['username'],
         language_options=LANGUAGE_OPTIONS,
         selected_language_key=selected_key,
+        todoist_projects=todoist_projects,
+        todoist_projects_error=projects_error,
     )
 
 
@@ -310,31 +341,34 @@ def transcribe():
         generated_text = ""
         generation_error = None
         structured_payload = None
+        list_of_projects: list[dict[str, object]] = []
+        list_of_project_names: list[str] = []
+        project_fetch_error: str | None = None
 
+        list_of_projects, list_of_project_names, project_fetch_error = fetch_todoist_projects()
+        ic(list_of_project_names)
 
-        try:
-            list_of_projects = list_projects()
-            list_of_project_names = [project['name'] for project in list_of_projects]
-            ic(list_of_project_names)
+        if project_fetch_error:
+            generation_error = project_fetch_error
+        else:
+            try:
+                suggestion_obj = generate_todo_suggestions(
+                    transcription_text,
+                    prompt=TODO_PROMPT,
+                    model=OPENAI_TEXT_MODEL,
+                    project_types=list_of_project_names,
+                    api_key=openai_api_key,
+                )
 
-            suggestion_obj = generate_todo_suggestions(
-                transcription_text,
-                prompt=TODO_PROMPT,
-                model=OPENAI_TEXT_MODEL,
-                project_types=list_of_project_names,
-                api_key=openai_api_key,
-            )
+                ic(suggestion_obj)
 
-            ic(suggestion_obj)
-
-            if suggestion_obj:
-                structured_payload = suggestion_obj.model_dump()
-                generated_text = format_todo_suggestion_text(suggestion_obj)
-            else:
-                generated_text = ""
-
-        except Exception as gen_exc:  # noqa: BLE001
-            generation_error = str(gen_exc)
+                if suggestion_obj:
+                    structured_payload = suggestion_obj.model_dump()
+                    generated_text = format_todo_suggestion_text(suggestion_obj)
+                else:
+                    generated_text = ""
+            except Exception as gen_exc:  # noqa: BLE001
+                generation_error = str(gen_exc)
         
         # Usuń plik tymczasowy
         os.unlink(temp_path)
@@ -347,6 +381,11 @@ def transcribe():
 
         if structured_payload:
             response_payload['assistant_structured'] = structured_payload
+
+        response_payload['projects'] = list_of_projects
+
+        if project_fetch_error:
+            response_payload['projects_error'] = project_fetch_error
 
         if generation_error:
             response_payload['assistant_error'] = (
@@ -399,10 +438,15 @@ def create_todoist_task():
     payload = request.get_json(silent=True) or {}
     content = (payload.get('content') or '').strip()
     structured_payload = payload.get('structured')
+    project_id_raw = payload.get('project_id')
+    project_id = str(project_id_raw).strip() if project_id_raw is not None else ''
 
     sections = split_content_into_dict(content)
     if not isinstance(structured_payload, dict) or not structured_payload:
         structured_payload = build_structured_payload_from_sections(sections)
+
+    if project_id:
+        structured_payload['project_id'] = project_id
 
     ic(structured_payload)
     if not content:
@@ -411,17 +455,24 @@ def create_todoist_task():
     if not TODOIST_API_TOKEN:
         return jsonify({'error': 'Brak konfiguracji klucza API Todoist.'}), 400
 
+    if not project_id and not TODOIST_PROJECT_ID:
+        return jsonify({'error': 'Brak wybranego projektu Todoist.'}), 400
+
+    if not project_id:
+        project_id = str(TODOIST_PROJECT_ID or '').strip()
+
     
     ic(sections)
-    ic(sections['Tasks'])
-    ic(sections['Tasks'].split('- '))
+    tasks_section = sections.get('Tasks', '')
+    ic(tasks_section)
+    ic(tasks_section.split('- ') if tasks_section else [])
 
     try:
         ic(TODOIST_PROJECT_ID)
         todoist_response = create_todoist_task_api(
             sections['Task Summary'],
             api_token=TODOIST_API_TOKEN,
-            project_id=TODOIST_PROJECT_ID,
+            project_id=project_id,
             api_url=TODOIST_API_URL,
             priority=structured_payload.get('priority'),
             due_date=structured_payload.get('due_date'),
@@ -429,7 +480,7 @@ def create_todoist_task():
         )
 
 
-        list_of_tasks = sections['Tasks'].split('- ')
+        list_of_tasks = tasks_section.split('- ') if tasks_section else []
         list_of_tasks = [task for task in list_of_tasks if task.strip()] #cleans empty spaces between tasks
         ic(list_of_tasks)
 
@@ -443,7 +494,7 @@ def create_todoist_task():
                 subtask_response = create_todoist_task_api(
                     subtask,
                     api_token=TODOIST_API_TOKEN,
-                    project_id=TODOIST_PROJECT_ID,
+                    project_id=project_id,
                     api_url=TODOIST_API_URL,
                     parent_id=todoist_parent_id,
                     priority=structured_payload.get('priority'),

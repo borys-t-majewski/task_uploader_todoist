@@ -219,6 +219,33 @@
             margin-bottom: 25px;
         }
 
+        .project-selector {
+            margin: 25px 0;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .project-selector label {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .project-selector select {
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 2px solid #e0e0e0;
+            font-size: 15px;
+            transition: border-color 0.3s, box-shadow 0.3s;
+            background: #fff;
+        }
+
+        .project-selector select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
         .text-area {
             width: 100%;
             min-height: 160px;
@@ -370,6 +397,14 @@
                     <textarea id="transcriptionText" class="text-area readonly" readonly>Transkrypcja pojawi się tutaj po nagraniu...</textarea>
                 </div>
 
+                <div class="project-selector" id="projectSelectorContainer">
+                    <label for="projectSelect">📁 Wybierz projekt Todoist:</label>
+                    <select id="projectSelect">
+                        <option value="">-- Wybierz projekt --</option>
+                    </select>
+                    <div id="projectStatus" class="status-message inline" style="display: none;"></div>
+                </div>
+
                 <div class="section-block">
                     <h3>✅ Sugestie z AI:</h3>
                     <textarea id="assistantText" class="text-area editable" placeholder="Sugestie pojawią się tutaj po transkrypcji..."></textarea>
@@ -380,6 +415,11 @@
             </div>
         </div>
     </div>
+
+    <script>
+        window.todoistProjects = {{ todoist_projects | tojson }};
+        window.todoistProjectsError = {{ todoist_projects_error | tojson }};
+    </script>
 
     <script>
         let mediaRecorder;
@@ -399,6 +439,11 @@
         const todoistStatus = document.getElementById('todoistStatus');
         const spinner = document.getElementById('spinner');
         const languageSelector = document.getElementById('languageSelector');
+        const projectSelect = document.getElementById('projectSelect');
+        const projectStatus = document.getElementById('projectStatus');
+        let todoistProjects = Array.isArray(window.todoistProjects) ? [...window.todoistProjects] : [];
+        let assistantStructured = null;
+        const initialProjectsError = window.todoistProjectsError || null;
 
         // Funkcja do wyświetlania komunikatów
         function showStatus(message, type = 'info') {
@@ -424,10 +469,99 @@
             element.textContent = '';
         }
 
-        assistantText.addEventListener('input', () => {
+        function updateSendButtonState() {
             const hasContent = assistantText.value.trim().length > 0;
-            sendTodoistButton.disabled = !hasContent;
-        });
+            const hasProject = projectSelect && !projectSelect.disabled && projectSelect.value.trim().length > 0;
+            sendTodoistButton.disabled = !(hasContent && hasProject);
+        }
+
+        function normalizeProjectName(name) {
+            return (name || '').toString().trim().toLowerCase();
+        }
+
+        function populateProjectDropdown(projects) {
+            if (!projectSelect) {
+                return [];
+            }
+
+            const normalizedProjects = Array.isArray(projects) ? [...projects] : [];
+            const previousValue = projectSelect.value;
+
+            while (projectSelect.options.length > 1) {
+                projectSelect.remove(1);
+            }
+
+            normalizedProjects.forEach((project) => {
+                if (!project || project.id === undefined || project.name === undefined) {
+                    return;
+                }
+                const option = document.createElement('option');
+                option.value = String(project.id);
+                option.textContent = String(project.name);
+                option.dataset.name = String(project.name);
+                projectSelect.appendChild(option);
+            });
+
+            const canPreserveSelection = normalizedProjects.some(
+                (project) => String(project.id) === String(previousValue)
+            );
+
+            if (canPreserveSelection && previousValue) {
+                projectSelect.value = String(previousValue);
+            } else {
+                projectSelect.value = '';
+            }
+
+            projectSelect.disabled = normalizedProjects.length === 0;
+            todoistProjects = normalizedProjects;
+            updateSendButtonState();
+            return todoistProjects;
+        }
+
+        function refreshProjectSelector(projects, errorMessage) {
+            const normalizedProjects = populateProjectDropdown(projects);
+            if (!projectStatus) {
+                return;
+            }
+
+            if (errorMessage) {
+                updateInlineStatus(projectStatus, errorMessage, 'error');
+            } else if (normalizedProjects.length === 0) {
+                updateInlineStatus(projectStatus, 'Brak dostępnych projektów Todoist.', 'info');
+            } else {
+                clearInlineStatus(projectStatus);
+            }
+        }
+
+        function resetProjectSelection() {
+            if (!projectSelect) {
+                return;
+            }
+            projectSelect.value = '';
+            updateSendButtonState();
+        }
+
+        function attemptProjectAutoselect(structured) {
+            if (!projectSelect) {
+                return;
+            }
+
+            if (!structured || !structured.project) {
+                updateSendButtonState();
+                return;
+            }
+
+            const targetName = normalizeProjectName(structured.project);
+            const matchingProject = todoistProjects.find(
+                (project) => project && normalizeProjectName(project.name) === targetName
+            );
+
+            if (matchingProject) {
+                projectSelect.value = String(matchingProject.id);
+            }
+
+            updateSendButtonState();
+        }
 
         // Funkcja do formatowania czasu
         function formatTime(seconds) {
@@ -484,7 +618,8 @@
                 clearInlineStatus(assistantStatus);
                 clearInlineStatus(todoistStatus);
                 assistantText.value = '';
-                sendTodoistButton.disabled = true;
+                assistantStructured = null;
+                resetProjectSelection();
                 
             } catch (error) {
                 console.error('Błąd dostępu do mikrofonu:', error);
@@ -518,8 +653,8 @@
             clearInlineStatus(assistantStatus);
             clearInlineStatus(todoistStatus);
             assistantText.value = '';
-            sendTodoistButton.disabled = true;
-            delete assistantText.dataset.structured;
+            assistantStructured = null;
+            resetProjectSelection();
             
             try {
                 const response = await fetch('/transcribe', {
@@ -534,19 +669,24 @@
                     transcriptionText.value = data.transcription || 'Brak transkrypcji.';
                     if (data.assistant_output) {
                         assistantText.value = data.assistant_output;
-                        const hasContent = assistantText.value.trim().length > 0;
-                        sendTodoistButton.disabled = !hasContent;
                         updateInlineStatus(assistantStatus, 'Sugestie wygenerowane. Możesz je edytować przed wysyłką.', 'success');
                     } else {
                         assistantText.value = '';
-                        sendTodoistButton.disabled = true;
                         updateInlineStatus(assistantStatus, 'Brak automatycznych sugestii. Wprowadź treść ręcznie.', 'info');
                     }
 
-                    if (data.assistant_structured) {
-                        assistantText.dataset.structured = JSON.stringify(data.assistant_structured, null, 2);
+                    assistantStructured = data.assistant_structured || null;
+
+                    if (Object.prototype.hasOwnProperty.call(data, 'projects')) {
+                        refreshProjectSelector(data.projects, data.projects_error || null);
+                    } else if (data.projects_error) {
+                        updateInlineStatus(projectStatus, data.projects_error, 'error');
+                    }
+
+                    if (assistantStructured) {
+                        attemptProjectAutoselect(assistantStructured);
                     } else {
-                        delete assistantText.dataset.structured;
+                        updateSendButtonState();
                     }
 
                     if (data.assistant_error) {
@@ -563,7 +703,8 @@
                 console.error('Błąd podczas wysyłania:', error);
                 showStatus('❌ Błąd podczas komunikacji z serwerem.', 'error');
                 transcriptionText.value = '';
-                delete assistantText.dataset.structured;
+                assistantStructured = null;
+                updateSendButtonState();
             }
         }
 
@@ -578,14 +719,30 @@
 
         async function sendToTodoist() {
             const content = assistantText.value.trim();
+            const selectedProjectId = projectSelect ? projectSelect.value.trim() : '';
 
             if (!content) {
                 updateInlineStatus(todoistStatus, 'Pole nie może być puste.', 'error');
                 return;
             }
 
+            if (!selectedProjectId) {
+                updateInlineStatus(todoistStatus, 'Wybierz projekt Todoist przed wysłaniem.', 'error');
+                updateSendButtonState();
+                return;
+            }
+
             updateInlineStatus(todoistStatus, '⏳ Wysyłanie zadania do Todoist...', 'info');
             sendTodoistButton.disabled = true;
+
+            const requestBody = {
+                content,
+                project_id: selectedProjectId,
+            };
+
+            if (assistantStructured) {
+                requestBody.structured = assistantStructured;
+            }
 
             try {
                 const response = await fetch('/todoist', {
@@ -593,7 +750,7 @@
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ content })
+                    body: JSON.stringify(requestBody)
                 });
 
                 const result = await response.json();
@@ -607,11 +764,23 @@
                 console.error('Błąd podczas wysyłania do Todoist:', error);
                 updateInlineStatus(todoistStatus, '❌ Błąd podczas komunikacji z Todoist.', 'error');
             } finally {
-                sendTodoistButton.disabled = assistantText.value.trim().length === 0;
+                updateSendButtonState();
             }
         }
 
         sendTodoistButton.addEventListener('click', sendToTodoist);
+
+        assistantText.addEventListener('input', updateSendButtonState);
+
+        if (projectSelect) {
+            projectSelect.addEventListener('change', () => {
+                clearInlineStatus(todoistStatus);
+                updateSendButtonState();
+            });
+        }
+
+        refreshProjectSelector(todoistProjects, initialProjectsError);
+        updateSendButtonState();
 
         if (languageSelector) {
             const languageButtons = languageSelector.querySelectorAll('.language-option');

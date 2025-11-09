@@ -63,7 +63,7 @@ def _build_instruction_prompt(project_types: Sequence[str]) -> str:
         f"{allowed_projects}\n"
         "- task_summary: 1-2 sentence summary of the overall task.\n"
         "- tasks: array of concise, actionable to-do items (each item is a short sentence).\n"
-        "- priority: integer 1-4, where 1 is highest priority, 4 is lowest. Default to 4 when unspecified.\n"
+        "- priority: integer 1-4, where 4 is highest priority, 1 is lowest. Default to 1 when unspecified.\n"
         "Ensure the project string contains NEWPROJECT prefix when the transcript implies a new project or the project is not in the allowed list.\n"
         f"{project_clause}\n"  
     )
