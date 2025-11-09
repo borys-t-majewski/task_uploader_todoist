@@ -1,14 +1,18 @@
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+import ast
 import os
-from werkzeug.security import check_password_hash, generate_password_hash
-from openai import OpenAI
+import re
 import tempfile
-from dotenv import load_dotenv
-
 from typing import List
 
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from werkzeug.security import check_password_hash, generate_password_hash
+from openai import OpenAI
+from dotenv import load_dotenv
+
+from icecream import ic
 from todo_suggestions import TodoSuggestion, generate_todo_suggestions
-from todoist_tasks import TodoistError, create_todoist_task as create_todoist_task_api
+from todoist_tasks import TodoistError, create_todoist_task_api
+from list_todoist_projects import list_projects
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)  # Generuj losowy klucz sesji
@@ -75,30 +79,104 @@ def format_todo_suggestion_text(suggestion: TodoSuggestion) -> str:
 
 
 def split_content_into_dict(content: str) -> dict[str, str]:
+    """Parse formatted content into section dictionary using !!key!! markers.
+
+    Args:
+        content: Content text containing sections delimited by !!Key!! markers.
+
+    Returns:
+        Mapping between section names and their associated text.
+    """
     result: dict[str, str] = {}
     if not content:
         return result
 
+    key_pattern = re.compile(r"^!!(?P<key>[^!]+)!!(?::\s*(?P<inline>.*))?$")
     current_key: str | None = None
     buffer: list[str] = []
 
     def flush() -> None:
         nonlocal buffer, current_key
         if current_key is not None:
-            value = "\n".join(line.rstrip() for line in buffer).strip()
+            value = "\n".join(buffer).strip()
             result[current_key] = value
         buffer = []
 
     for raw_line in content.splitlines():
-        stripped = raw_line.strip()
-        if stripped.startswith('!!') and stripped.endswith('!!') and len(stripped) > 4:
+        match = key_pattern.match(raw_line.strip())
+        if match:
             flush()
-            current_key = stripped[2:-2].strip()
+            current_key = match.group("key").strip()
+            inline_value = match.group("inline")
+            buffer = [inline_value] if inline_value else []
             continue
-        buffer.append(raw_line)
+        if current_key is not None:
+            buffer.append(raw_line.rstrip())
 
     flush()
     return result
+
+
+def build_structured_payload_from_sections(sections: dict[str, str]) -> dict[str, object]:
+    """Convert parsed sections into structured payload compatible with Todoist task creation.
+
+    Args:
+        sections: Mapping of section titles to the associated content extracted from the task text.
+
+    Returns:
+        Dictionary with normalized fields expected by downstream Todoist integrations.
+    """
+    structured: dict[str, object] = {}
+
+    def _strip_or_none(value):
+        return value.strip() if value and value.strip() else None
+
+    project = _strip_or_none(sections.get("Project"))
+    if project:
+        structured["project"] = project
+
+    task_summary = _strip_or_none(sections.get("Task Summary"))
+    if task_summary:
+        structured["task_summary"] = task_summary
+
+    task_block = sections.get("Task") or sections.get("Tasks")
+    if task_block:
+        tasks = []
+        for line in task_block.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith("-"):
+                stripped = stripped[1:].strip()
+            tasks.append(stripped)
+        if tasks:
+            structured["task"] = tasks
+
+    priority_raw = _strip_or_none(sections.get("Priority"))
+    if priority_raw:
+        try:
+            structured["priority"] = int(priority_raw)
+        except ValueError:
+            structured["priority"] = priority_raw
+
+    due_date = _strip_or_none(sections.get("Due Date"))
+    if due_date:
+        structured["due_date"] = due_date
+
+    labels_raw = _strip_or_none(sections.get("Labels"))
+    if labels_raw:
+        try:
+            parsed_labels = ast.literal_eval(labels_raw)
+            if isinstance(parsed_labels, list):
+                structured["labels"] = [str(label) for label in parsed_labels]
+            else:
+                structured["labels"] = [str(parsed_labels)]
+        except (SyntaxError, ValueError):
+            labels = [label.strip() for label in labels_raw.split(",") if label.strip()]
+            if labels:
+                structured["labels"] = labels
+
+    return structured
 
 @app.route('/')
 def index():
@@ -170,24 +248,23 @@ def transcribe():
         generation_error = None
         structured_payload = None
 
+
         try:
+            list_of_projects = list_projects()
+            list_of_project_names = [project['name'] for project in list_of_projects]
+            ic(list_of_project_names)
+
             suggestion_obj = generate_todo_suggestions(
                 transcription_text,
                 prompt=TODO_PROMPT,
                 model=OPENAI_TEXT_MODEL,
-                project_types=PROJECT_TYPES,
+                project_types=list_of_project_names,
                 api_key=openai_api_key,
             )
 
             if suggestion_obj:
                 structured_payload = suggestion_obj.model_dump()
-                print('---------------')
-                print(structured_payload)
-                print('---------------')
                 generated_text = format_todo_suggestion_text(suggestion_obj)
-                print('---------------')
-                print(generated_text)
-                print('---------------')
             else:
                 generated_text = ""
 
@@ -225,6 +302,7 @@ def transcribe():
 
 @app.route('/todoist', methods=['POST'])
 def create_todoist_task():
+    from icecream import ic
     """Send generated text to Todoist as a new task."""
     if 'username' not in session:
         return jsonify({'error': 'Nie zalogowano'}), 401
@@ -233,6 +311,11 @@ def create_todoist_task():
     content = (payload.get('content') or '').strip()
     structured_payload = payload.get('structured')
 
+    sections = split_content_into_dict(content)
+    if not isinstance(structured_payload, dict) or not structured_payload:
+        structured_payload = build_structured_payload_from_sections(sections)
+
+    ic(structured_payload)
     if not content:
         return jsonify({'error': 'Treść zadania nie może być pusta.'}), 400
 
@@ -240,8 +323,9 @@ def create_todoist_task():
         return jsonify({'error': 'Brak konfiguracji klucza API Todoist.'}), 400
 
     try:
+        ic(TODOIST_PROJECT_ID)
         todoist_response = create_todoist_task_api(
-            content,
+            sections['Task Summary'],
             api_token=TODOIST_API_TOKEN,
             project_id=TODOIST_PROJECT_ID,
             api_url=TODOIST_API_URL,
@@ -249,11 +333,36 @@ def create_todoist_task():
             due_date=structured_payload.get('due_date'),
             labels=structured_payload.get('labels'),
         )
-        # splits into dict after sending to todoist, have to do it before
+
+
+
+        list_of_tasks = sections['Tasks'].split('- ')
+        list_of_tasks = [task for task in list_of_tasks if task.strip()] #cleans empty spaces between tasks
+
+        if len(list_of_tasks) > 0:
+            todoist_parent_id = todoist_response.get('id')
+            for subtask in list_of_tasks:
+                subtask = subtask.strip()
+                subtask_response = create_todoist_task_api(
+                    subtask,
+                    api_token=TODOIST_API_TOKEN,
+                    project_id=TODOIST_PROJECT_ID,
+                    api_url=TODOIST_API_URL,
+                    parent_id=todoist_parent_id,
+                    priority=structured_payload.get('priority'),
+                    due_date=structured_payload.get('due_date'),
+                    labels=structured_payload.get('labels'),
+                )
+            
+
+
+
+
+
         return jsonify({
             'success': True,
             'todoist_response': todoist_response,
-            'parsed_content': split_content_into_dict(content),
+            'parsed_content': sections,
             'structured_payload': structured_payload,
         }), 200
 

@@ -21,7 +21,7 @@ class TodoistError(Exception):
         return f"Todoist API error ({self.status_code}): {self.detail}"
 
 
-def create_todoist_task(
+def create_todoist_task_api(
     content: str,
     *,
     api_token: str,
@@ -31,6 +31,7 @@ def create_todoist_task(
     ,priority = 4
     ,due_date = None
     ,labels = None
+    ,parent_id = None
 ) -> Dict[str, Any]:
     """Create a task in Todoist and return the API response JSON."""
 
@@ -49,7 +50,8 @@ def create_todoist_task(
         payload["priority"] = priority
     if labels:
         payload["labels"] = labels
-
+    if parent_id:
+        payload["parent_id"] = parent_id
 
     headers = {
         "Authorization": f"Bearer {api_token}",
@@ -62,6 +64,8 @@ def create_todoist_task(
         json=payload,
         timeout=timeout,
     )
+
+    # ic(response.json())
 
     if response.status_code not in (200, 201):
         raise TodoistError(response.status_code, response.text)

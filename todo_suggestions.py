@@ -25,11 +25,11 @@ class TodoSuggestion(BaseModel):
         ...,
         ge=1,
         le=4,
-        description="Priority value from 1 (highest) to 4 (lowest).",
+        description="Priority value from 4 (highest) to 1 (lowest).",
     )
     due_date: str = Field(
         ...,
-        description=f"Due date. Format: YYYY-MM-DD. Consider today's date: {datetime.now().strftime('%Y-%m-%d')}. Consider that if timeline is before today, then you should use next year.",
+        description=f"Due date. Format: YYYY-MM-DD. Consider today's date: {datetime.now().strftime('%Y-%m-%d')}. Consider that if timeline is before today, then you should use next year. If there's no info about due date, consider +3 days from current date.",
     )
     labels: list[str] = Field(
         ...,
@@ -38,10 +38,14 @@ class TodoSuggestion(BaseModel):
 
 def _build_instruction_prompt(project_types: Sequence[str]) -> str:
     if project_types:
+        print('project_types')
+        print(project_types)
         projects_section = "\n".join(f"- {name}" for name in project_types)
+        print('projects_section')
+        print(projects_section)
         project_clause = (
             "Project must explicitly match one of the allowed project types listed below. "
-            "If the transcript specifies a different or new project, prefix the project name with NEWPROJECT."\
+            "If nothing matches, write UNKNOWNPROJECT."\
         )
         allowed_projects = f"Allowed project types:\n{projects_section}"
     else:
@@ -90,6 +94,7 @@ def generate_todo_suggestions(
             ("user", "{user_prompt}"),
         ]
     )
+
 
     messages = template.format_messages(
         instruction=instruction,
