@@ -1,122 +1,134 @@
-# 🎤 Aplikacja do Transkrypcji Audio
+# 🎤 Audio Transcription App
 
-Aplikacja webowa w Pythonie wykorzystująca Flask i OpenAI Whisper do nagrywania i transkrypcji audio.
+This Python web application uses Flask and OpenAI Whisper to record and transcribe audio.
 
-## 📋 Funkcjonalności
+## 📋 Features
 
-- ✅ Logowanie do kont kontrowanych przez `accounts.json`
-- ✅ Nagrywanie audio bezpośrednio w przeglądarce (do 60 sekund)
-- ✅ Automatyczna transkrypcja za pomocą OpenAI Whisper API
-- ✅ Automatyczne generowanie sugestii z modelu tekstowego (edycja w dodatkowym polu)
-- ✅ Strukturalne wyniki obejmujące projekt, skrót zadania, kroki i priorytet (function calling)
-- ✅ Wysyłanie wygenerowanych zadań do Todoist jednym przyciskiem
-- ✅ Nowoczesny i responsywny interfejs użytkownika
+- ✅ Account login managed via `accounts.json`
+- ✅ Browser-based audio recording (up to 60 seconds)
+- ✅ Automatic transcription using the OpenAI Whisper API
+- ✅ Automatic suggestion generation powered by a text model (with an editable field)
+- ✅ Structured output including project, task summary, steps, and priority (function calling)
+- ✅ One-click task submission to Todoist
+- ✅ Modern, responsive user interface
 
-## 🔧 Instalacja
+## 🔧 Installation
 
-1. Sklonuj repozytorium lub pobierz pliki
+1. Clone the repository or download the project files.
+2. Install the required dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Configure accounts and settings:
 
-2. Zainstaluj wymagane biblioteki:
-```bash
-pip install -r requirements.txt
-```
+   - Copy `accounts.example.json` to `accounts.json`. The file containing real credentials is ignored by Git.
+   - For each account, fill in `username` and either `password` **or** `password_hash`. Plaintext passwords are automatically hashed when the app starts.
+   - In the `settings` section, provide per-account configuration such as `openai_api_key`, `todoist_api_token`, `whisper_language`, and `project_types`.
+   - Optionally set the `ACCOUNTS_FILE` environment variable to point to a different configuration file location.
 
-3. Skonfiguruj konta i ustawienia:
+## 🚀 Run the App
 
-   - Skopiuj plik `accounts.example.json` jako `accounts.json`. Plik z realnymi danymi jest ignorowany przez Git.
-   - Dla każdego konta uzupełnij pola `username` oraz `password` **lub** `password_hash`. Wartość z `password` zostanie automatycznie zhashowana przy starcie aplikacji.
-   - W sekcji `settings` przypisz indywidualne klucze i ustawienia, np. `openai_api_key`, `todoist_api_token`, `whisper_language`, `project_types`.
-   - Opcjonalnie ustaw zmienną środowiskową `ACCOUNTS_FILE`, aby wskazać alternatywną lokalizację pliku konfiguracyjnego.
-
-## 🚀 Uruchomienie
-
-Uruchom aplikację:
+Start the application with:
 ```bash
 python uploader_main.py
 ```
 
-Aplikacja będzie dostępna pod adresem: `http://localhost:5000`
+The app is available at `http://localhost:5000`.
 
-## 👤 Konfiguracja kont
+## 👤 Account Configuration
 
-Lista kont znajduje się w pliku `accounts.json`. Możesz rozpocząć od skopiowania `accounts.example.json` i uzupełnienia własnych danych logowania oraz kluczy API.
+Manage user accounts in `accounts.json`. Begin by copying `accounts.example.json`, then fill in login details and API keys for each user.
 
-## 📝 Jak używać
+## 📝 How to Use
 
-1. Zaloguj się używając danych konta z `accounts.json`
-2. Kliknij przycisk mikrofonu aby rozpocząć nagrywanie
-3. Mów przez maksymalnie 60 sekund
-4. Kliknij ponownie aby zakończyć nagrywanie
-5. Poczekaj na przetworzenie - transkrypcja i sugestie pojawią się automatycznie
-6. Edytuj treść w drugim polu (opcjonalnie)
-7. Kliknij „Wyślij do Todoist”, aby utworzyć zadanie
+1. Log in with credentials stored in `accounts.json`.
+2. Click the microphone button to start recording.
+3. Speak for up to 60 seconds.
+4. Click the button again to stop recording.
+5. Wait for processing — the transcription and suggestions appear automatically.
+6. Optionally edit the generated content in the second field.
+7. Click “Send to Todoist” to create a task.
 
-## 🛠️ Technologie
+## 🛠️ Technology Stack
 
 - **Backend**: Flask (Python)
 - **Frontend**: HTML5, CSS3, JavaScript
 - **API**: OpenAI Whisper
-- **Biblioteki**: flask, langchain, langchain-openai, werkzeug, python-dotenv
+- **Libraries**: flask, langchain, langchain-openai, werkzeug, python-dotenv
 
-## 🔄 Integracja z Todoist
+## 🛠️ Improvement areas
+- Add extra content per user (background of user work, commonly used terms, etc.) that will help transcribe properly.
+- Ability to create separate deadline for each subtask, with relative difference from full task deadline.
 
-- W pliku `accounts.json` przypisz `todoist_api_token` dla wybranego konta (klucz obowiązkowy).
-- Opcjonalnie ustaw `todoist_project_id`, aby zadania trafiały domyślnie do konkretnego projektu.
-- Tekst z drugiego pola jest wysyłany jako treść zadania; możesz go edytować przed wysyłką.
-- Komunikaty o błędach pojawią się automatycznie przy próbie wysyłki.
-- Pole `project_types` może ograniczać listę dopuszczalnych projektów używaną w promptach, gdy pobieranie projektów z Todoist nie jest możliwe.
+## 🔄 Todoist Integration
 
-## ⚠️ Wymagania
+- Assign a `todoist_api_token` in `accounts.json` for any account that should sync tasks (required).
+- Optionally configure `todoist_project_id` to send tasks to a specific Todoist project by default.
+- The editable second field is sent as the task content; update it before submission if needed.
+- Error messages appear automatically during submission attempts.
+- The `project_types` field can restrict the list of allowed projects in prompts when Todoist project retrieval is unavailable.
 
-- Python 3.8 lub nowszy
-- Klucz API OpenAI
-- Przeglądarka z obsługą MediaRecorder API (Chrome, Firefox, Edge)
-- Mikrofon
+## ⚠️ Requirements
 
-## 🔒 Bezpieczeństwo
+- Python 3.8 or newer
+- OpenAI API key
+- Browser with MediaRecorder API support (Chrome, Firefox, Edge)
+- Microphone
 
-- Sesje użytkowników są zabezpieczone kluczem sesji
-- Hasła są hashowane przy użyciu werkzeug.security
-- Plik `accounts.json` jest ignorowany przez Git — przechowuj go w bezpiecznej lokalizacji i ogranicz dostęp
-- Pliki audio są tymczasowe i automatycznie usuwane po transkrypcji
+## 🔒 Security
 
-## 📂 Struktura Projektu
+- User sessions are protected with a session key.
+- Passwords are hashed with `werkzeug.security`.
+- The `accounts.json` file is ignored by Git — store it securely with limited access.
+- Audio files are temporary and removed automatically after transcription.
+
+## 📂 Project Structure
 
 ```
 task_uploader/
-│
-├── uploader_main.py          # Główna aplikacja Flask
-├── requirements.txt          # Zależności Python
-├── README.md                 # Dokumentacja
-│
+├── README.md
+├── account_config.py
+├── accounts.example.json
+├── accounts.json               # Local credentials (gitignored)
+├── env.example
+├── list_todoist_projects.py
+├── requirements.txt
+├── services/
+│   ├── __init__.py
+│   ├── account_service.py
+│   ├── language_preferences.py
+│   ├── todoist_processing.py
+│   └── transcription_service.py
+├── static/
 ├── templates/
-│   ├── login.html           # Strona logowania
-│   └── index.html           # Strona główna z nagrywaniem
-│
-└── static/                  # Katalog na dodatkowe pliki statyczne
+│   ├── index.html
+│   └── login.html
+├── todo_suggestions.py
+├── todoist_tasks.py
+└── uploader_main.py
 ```
 
-## 💡 Uwagi
+## 💡 Tips
 
-- Domyślny język transkrypcji konfigurujesz w `accounts.json` polem `whisper_language`
-- Maksymalny czas nagrania to 60 sekund
-- Pliki audio są zapisywane tymczasowo w formacie WebM
+- Set the default transcription language with `whisper_language` inside `accounts.json`.
+- Maximum recording duration is 60 seconds.
+- Audio files are temporarily stored in WebM format.
 
-## 🐛 Rozwiązywanie problemów
+## 🐛 Troubleshooting
 
-**Problem: Brak dostępu do mikrofonu**
-- Sprawdź uprawnienia przeglądarki
-- Upewnij się, że żadna inna aplikacja nie używa mikrofonu
+**Problem: No access to microphone**  
+- Check your browser permissions.  
+- Ensure no other application is using the microphone.
 
-**Problem: Błąd podczas transkrypcji**
-- Sprawdź poprawność klucza API OpenAI
-- Upewnij się, że masz środki na koncie OpenAI
+**Problem: Transcription error**  
+- Verify that the OpenAI API key is correct.  
+- Confirm that your OpenAI account has available credit.
 
-**Problem: Aplikacja nie startuje**
-- Sprawdź czy zainstalowałeś wszystkie zależności z `requirements.txt`
-- Upewnij się, że port 5000 jest wolny
+**Problem: App fails to start**  
+- Confirm all dependencies from `requirements.txt` are installed.  
+- Ensure port 5000 is available.
 
-## 📄 Licencja
+## 📄 License
 
-Projekt edukacyjny - wolne użytkowanie.
+Educational project — free to use.
 
