@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nagrywanie i Transkrypcja Audio</title>
+    <title>Recording and tasking assistant</title>
     <style>
         * {
             margin: 0;
@@ -351,7 +351,7 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🎤 Transkrypcja Audio</h1>
+            <h1>🎤 Recording and tasking assistant</h1>
             <div class="header-controls">
                 <div class="language-selector" id="languageSelector" data-selected="{{ selected_language_key }}">
                     {% for key, option in language_options.items() %}
@@ -370,19 +370,20 @@
 
         <div class="main-panel">
             <div class="instructions">
-                <h3>📋 Instrukcja:</h3>
+                <h3>📋 Instructions:</h3>
                 <ul>
-                    <li>Kliknij przycisk mikrofonu, aby rozpocząć nagrywanie</li>
-                    <li>Możesz nagrywać do 60 sekund</li>
-                    <li>Kliknij ponownie, aby zakończyć nagrywanie</li>
-                    <li>Transkrypcja pojawi się automatycznie poniżej</li>
+                    <li>Click to start recording (max 60 seconds)</li>
+                    <li>Click again to stop</li>
+                    <li>See transcription and suggestion below.</li>
+                    <li>Change project and tasks if necessary, and send to Todoist.</li>
+                </ul>
                 </ul>
             </div>
 
             <div class="recording-section">
-                <h2>Nagrywaj swój dźwięk</h2>
+                <h2>RECORD</h2>
                 
-                <button id="recordButton" class="record-button" title="Kliknij aby rozpocząć nagrywanie">
+                <button id="recordButton" class="record-button" title="Click to start recording">
                     🎤
                 </button>
                 
@@ -394,20 +395,20 @@
             <div class="transcription-section">
                 <div class="section-block">
                     <h3>📝 Transkrypcja:</h3>
-                    <textarea id="transcriptionText" class="text-area readonly" readonly>Transkrypcja pojawi się tutaj po nagraniu...</textarea>
+                    <textarea id="transcriptionText" class="text-area readonly" readonly>Transcription here after recording...</textarea>
                 </div>
 
                 <div class="project-selector" id="projectSelectorContainer">
-                    <label for="projectSelect">📁 Wybierz projekt Todoist:</label>
+                    <label for="projectSelect">📁 Choose project:</label>
                     <select id="projectSelect">
-                        <option value="">-- Wybierz projekt --</option>
+                        <option value="">-- Choose project --</option>
                     </select>
                     <div id="projectStatus" class="status-message inline" style="display: none;"></div>
                 </div>
 
                 <div class="section-block">
-                    <h3>✅ Sugestie z AI:</h3>
-                    <textarea id="assistantText" class="text-area editable" placeholder="Sugestie pojawią się tutaj po transkrypcji..."></textarea>
+                    <h3>✅ AI-powered suggestions:</h3>
+                    <textarea id="assistantText" class="text-area editable" placeholder="Suggestions will appear here post transcription..."></textarea>
                     <div id="assistantStatus" class="status-message inline" style="display: none;"></div>
                     <button id="sendTodoistButton" class="todoist-button" disabled>Wyślij do Todoist</button>
                     <div id="todoistStatus" class="status-message inline" style="display: none;"></div>
@@ -455,8 +456,8 @@
                     initialProjectsError = bootstrapData.error;
                 }
             } catch (error) {
-                console.error('Błąd parsowania danych projektów Todoist:', error);
-                initialProjectsError = 'Nie udało się wczytać listy projektów Todoist.';
+                console.error('Parsing project data error:', error);
+                initialProjectsError = 'Could not load projects list.';
             }
         }
 
@@ -547,10 +548,10 @@
                     matchingOption.dataset.name ||
                     matchingOption.textContent ||
                     '';
-                const statusSuffix = source === 'suggestion' ? ' (na podstawie sugestii).' : '.';
+                const statusSuffix = source === 'suggestion' ? ' (Based on suggestion).' : '.';
                 updateInlineStatus(
                     projectStatus,
-                    `Wybrano projekt: ${displayName.trim()}${statusSuffix}`,
+                    `Selected project: ${displayName.trim()}${statusSuffix}`,
                     'success'
                 );
             }
@@ -604,7 +605,7 @@
             if (errorMessage) {
                 updateInlineStatus(projectStatus, errorMessage, 'error');
             } else if (normalizedProjects.length === 0) {
-                updateInlineStatus(projectStatus, 'Brak dostępnych projektów Todoist.', 'info');
+                updateInlineStatus(projectStatus, 'No projects available.', 'info');
             } else {
                 clearInlineStatus(projectStatus);
             }
@@ -654,7 +655,7 @@
                 if (projectStatus && todoistProjects.length > 0) {
                     updateInlineStatus(
                         projectStatus,
-                        'Sugestia wskazała nowy lub nieznany projekt. Wybierz projekt ręcznie.',
+                        'Suggested new or unknown project. Select project manually.',
                         'info'
                     );
                 }
@@ -697,7 +698,7 @@
             } else if (projectStatus && todoistProjects.length > 0) {
                 updateInlineStatus(
                     projectStatus,
-                    'Nie znaleziono projektu pasującego do sugestii. Wybierz go ręcznie.',
+                    'No project matching suggestion. Select manually.',
                     'info'
                 );
             }
@@ -749,14 +750,14 @@
                 isRecording = true;
                 recordButton.classList.add('recording');
                 recordButton.textContent = '⏹️';
-                recordButton.title = 'Kliknij aby zakończyć nagrywanie';
+                recordButton.title = 'Click to start recording.';
                 
                 startTime = Date.now();
                 timerDisplay.classList.add('recording');
                 timerInterval = setInterval(updateTimer, 100);
                 updateTimer();
                 
-                showStatus('🔴 Nagrywanie w toku...', 'info');
+                showStatus('🔴 Recording in progress...', 'info');
                 clearInlineStatus(assistantStatus);
                 clearInlineStatus(todoistStatus);
                 assistantText.value = '';
@@ -767,8 +768,8 @@
                 }
                 
             } catch (error) {
-                console.error('Błąd dostępu do mikrofonu:', error);
-                showStatus('❌ Błąd: Nie można uzyskać dostępu do mikrofonu. Sprawdź uprawnienia przeglądarki.', 'error');
+                console.error('No microphone access:', error);
+                showStatus('❌ Error: cannot access microphone. Check browser permissions.', 'error');
             }
         }
 
@@ -779,13 +780,13 @@
                 isRecording = false;
                 recordButton.classList.remove('recording');
                 recordButton.textContent = '🎤';
-                recordButton.title = 'Kliknij aby rozpocząć nagrywanie';
+                recordButton.title = 'Click to start recording.';
                 
                 clearInterval(timerInterval);
                 timerDisplay.classList.remove('recording');
                 timerDisplay.textContent = '';
                 
-                showStatus('⏳ Przetwarzanie nagrania...', 'info');
+                showStatus('⏳ Processing recording...', 'info');
                 spinner.classList.add('active');
             }
         }
@@ -817,10 +818,10 @@
                     transcriptionText.value = data.transcription || 'Brak transkrypcji.';
                     if (data.assistant_output) {
                         assistantText.value = data.assistant_output;
-                        updateInlineStatus(assistantStatus, 'Sugestie wygenerowane. Możesz je edytować przed wysyłką.', 'success');
+                        updateInlineStatus(assistantStatus, 'Suggestions generated. You can edit them before sending.', 'success');
                     } else {
                         assistantText.value = '';
-                        updateInlineStatus(assistantStatus, 'Brak automatycznych sugestii. Wprowadź treść ręcznie.', 'info');
+                        updateInlineStatus(assistantStatus, 'No automatic suggestions. Enter content manually.', 'info');
                     }
 
                     assistantStructured = data.assistant_structured || null;
@@ -841,15 +842,15 @@
                         updateInlineStatus(assistantStatus, data.assistant_error, 'error');
                     }
 
-                    showStatus('✅ Transkrypcja zakończona pomyślnie!', 'success');
+                    showStatus('✅ Transcription completed successfully!', 'success');
                 } else {
                     transcriptionText.value = '';
-                    showStatus(`❌ Błąd: ${data.error}`, 'error');
+                    showStatus(`❌ Error: ${data.error}`, 'error');
                 }
             } catch (error) {
                 spinner.classList.remove('active');
-                console.error('Błąd podczas wysyłania:', error);
-                showStatus('❌ Błąd podczas komunikacji z serwerem.', 'error');
+                console.error('Error sending:', error);
+                showStatus('❌ Error: during communication with the server.', 'error');
                 transcriptionText.value = '';
                 assistantStructured = null;
                 updateSendButtonState();
@@ -870,17 +871,17 @@
             const selectedProjectId = projectSelect ? projectSelect.value.trim() : '';
 
             if (!content) {
-                updateInlineStatus(todoistStatus, 'Pole nie może być puste.', 'error');
+                updateInlineStatus(todoistStatus, 'Field cannot be empty.', 'error');
                 return;
             }
 
             if (!selectedProjectId) {
-                updateInlineStatus(todoistStatus, 'Wybierz projekt Todoist przed wysłaniem.', 'error');
+                updateInlineStatus(todoistStatus, 'Select todoist project before sending.', 'error');
                 updateSendButtonState();
                 return;
             }
 
-            updateInlineStatus(todoistStatus, '⏳ Wysyłanie zadania do Todoist...', 'info');
+            updateInlineStatus(todoistStatus, '⏳ Sending to Todoist...', 'info');
             sendTodoistButton.disabled = true;
 
             const requestBody = {
@@ -904,13 +905,13 @@
                 const result = await response.json();
 
                 if (response.ok && result.success) {
-                    updateInlineStatus(todoistStatus, '✅ Zadanie zostało wysłane do Todoist.', 'success');
+                    updateInlineStatus(todoistStatus, '✅ Task send to Todoist.', 'success');
                 } else {
-                    updateInlineStatus(todoistStatus, `❌ Błąd Todoist: ${result.error || 'Nieznany błąd.'}`, 'error');
+                    updateInlineStatus(todoistStatus, `❌ Todoist Error: ${result.error || 'Nieznany błąd.'}`, 'error');
                 }
             } catch (error) {
-                console.error('Błąd podczas wysyłania do Todoist:', error);
-                updateInlineStatus(todoistStatus, '❌ Błąd podczas komunikacji z Todoist.', 'error');
+                console.error('Todoist sending error:', error);
+                updateInlineStatus(todoistStatus, '❌ Error of communication with Todoist.', 'error');
             } finally {
                 updateSendButtonState();
             }
@@ -950,7 +951,7 @@
                             selectedOption.textContent ||
                             '';
                         if (label) {
-                            updateInlineStatus(projectStatus, `Wybrano projekt: ${label.trim()}.`, 'success');
+                            updateInlineStatus(projectStatus, `Project selected: ${label.trim()}.`, 'success');
                         } else {
                             clearInlineStatus(projectStatus);
                         }
@@ -995,11 +996,11 @@
                             button.classList.add('active');
                             languageSelector.dataset.selected = result.language_key;
                         } else {
-                            showStatus(`❌ Błąd zmiany języka: ${result.error || 'Nieznany błąd.'}`, 'error');
+                            showStatus(`❌ Language change error: ${result.error || 'Unknown error.'}`, 'error');
                         }
                     } catch (error) {
-                        console.error('Błąd zmiany języka:', error);
-                        showStatus('❌ Błąd podczas zmiany języka.', 'error');
+                        console.error('Language change error:', error);
+                        showStatus('❌ Language change error - check whether you are logged in.', 'error');
                     } finally {
                         languageButtons.forEach((btn) => {
                             btn.disabled = false;

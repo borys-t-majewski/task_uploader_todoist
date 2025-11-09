@@ -4,7 +4,6 @@ import os
 from pathlib import Path
 
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
-from dotenv import load_dotenv
 from werkzeug.security import check_password_hash
 
 from account_config import load_account_configs
@@ -25,10 +24,9 @@ from services.transcription_service import transcribe_audio_and_generate_respons
 app = Flask(__name__)
 app.secret_key = os.urandom(24)  # Generuj losowy klucz sesji
 
-# Load environment variables from .env file
-load_dotenv()
 
-ACCOUNTS_FILE = Path(os.getenv("ACCOUNTS_FILE", "accounts.json"))
+
+ACCOUNTS_FILE = Path("accounts.json")
 try:
     ACCOUNTS = load_account_configs(ACCOUNTS_FILE)
 except FileNotFoundError as exc:
