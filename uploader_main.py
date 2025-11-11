@@ -25,7 +25,6 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)  # Generuj losowy klucz sesji
 
 
-
 ACCOUNTS_FILE = Path("accounts.json")
 try:
     ACCOUNTS = load_account_configs(ACCOUNTS_FILE)
@@ -194,8 +193,18 @@ def create_todoist_task():
     tasks_section = sections.get('Tasks', '')
 
     try:
+        list_of_tasks = tasks_section.split('- ') if tasks_section else []
+        list_of_tasks = [task for task in list_of_tasks if task.strip()]  # Cleans empty spaces between tasks
+
+
+        if len(list_of_tasks) == 1:
+            todoist_task_description_string = sections['Task Summary'] + ' (' + list_of_tasks[0] + ')'
+        else:
+            todoist_task_description_string = sections['Task Summary']
+
+
         todoist_response = create_todoist_task_api(
-            sections['Task Summary'],
+            todoist_task_description_string,
             api_token=account.todoist_api_token,
             project_id=project_id,
             api_url=TODOIST_API_URL,
@@ -204,10 +213,7 @@ def create_todoist_task():
             labels=structured_payload.get('labels'),
         )
 
-        list_of_tasks = tasks_section.split('- ') if tasks_section else []
-        list_of_tasks = [task for task in list_of_tasks if task.strip()]  # Cleans empty spaces between tasks
-
-        if list_of_tasks:
+        if len(list_of_tasks) > 1:
             todoist_parent_id = todoist_response.get('id')
             for subtask in list_of_tasks:
                 subtask = subtask.strip()

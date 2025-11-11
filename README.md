@@ -59,6 +59,8 @@ Manage user accounts in `accounts.json`. Begin by copying `accounts.example.json
 ## 🛠️ Improvement areas
 - Add extra content per user (background of user work, commonly used terms, etc.) that will help transcribe properly.
 - Ability to create separate deadline for each subtask, with relative difference from full task deadline.
+- Potentially create timeout for sessions
+- Fix bugs with program taking timestamp from different timezone
 
 ## 🔄 Todoist Integration
 
