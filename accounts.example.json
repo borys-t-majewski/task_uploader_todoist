@@ -10,6 +10,7 @@
         "whisper_language": "pl",
         "todoist_api_token": "todoist-api-token",
         "todoist_project_id": "1234567890",
+        "subtask_deadline_method": "no_date",
         "project_types": [
           "Sales",
           "Marketing",

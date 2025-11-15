@@ -6,7 +6,11 @@ from pathlib import Path
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash
 
-from account_config import load_account_configs
+from account_config import (
+    DEFAULT_SUBTASK_DEADLINE_METHOD,
+    VALID_SUBTASK_DEADLINE_METHODS,
+    load_account_configs,
+)
 from todoist_tasks import TodoistError, create_todoist_task_api
 from services.account_service import get_account_settings_for_session
 from services.language_preferences import (
@@ -176,6 +180,19 @@ def create_todoist_task():
     if not isinstance(structured_payload, dict) or not structured_payload:
         structured_payload = build_structured_payload_from_sections(sections)
 
+    raw_subtask_deadline_method = payload.get('subtask_deadline_method')
+    subtask_deadline_method = account.subtask_deadline_method or DEFAULT_SUBTASK_DEADLINE_METHOD
+    if raw_subtask_deadline_method is not None:
+        candidate_method = str(raw_subtask_deadline_method).strip().lower()
+        if candidate_method and candidate_method in VALID_SUBTASK_DEADLINE_METHODS:
+            subtask_deadline_method = candidate_method
+        elif candidate_method:
+            return jsonify({
+                'error': "Unknown 'subtask_deadline_method'. "
+                         f"Valid methods: {', '.join(sorted(VALID_SUBTASK_DEADLINE_METHODS))}."
+            }), 400
+    structured_payload['subtask_deadline_method'] = subtask_deadline_method
+
     if project_id:
         structured_payload['project_id'] = project_id
 
@@ -217,6 +234,9 @@ def create_todoist_task():
             todoist_parent_id = todoist_response.get('id')
             for subtask in list_of_tasks:
                 subtask = subtask.strip()
+                subtask_due_date = structured_payload.get('due_date')
+                if subtask_deadline_method == 'no_date':
+                    subtask_due_date = None
                 _ = create_todoist_task_api(
                     subtask,
                     api_token=account.todoist_api_token,
@@ -224,7 +244,7 @@ def create_todoist_task():
                     api_url=TODOIST_API_URL,
                     parent_id=todoist_parent_id,
                     priority=structured_payload.get('priority'),
-                    due_date=structured_payload.get('due_date'),
+                    due_date=subtask_due_date,
                     labels=structured_payload.get('labels'),
                 )
 
