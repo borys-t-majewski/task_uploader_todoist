@@ -19,6 +19,9 @@ and extract clear, concise, actionable to-do items. Return them as a numbered li
 
 """
 
+VALID_SUBTASK_DEADLINE_METHODS = {"same_date", "no_date"}
+DEFAULT_SUBTASK_DEADLINE_METHOD = "same_date"
+
 
 @dataclass
 class AccountSettings:
@@ -33,6 +36,7 @@ class AccountSettings:
     todoist_api_token: str | None = None
     todoist_project_id: str | None = None
     project_types: list[str] = field(default_factory=list)
+    subtask_deadline_method: str = DEFAULT_SUBTASK_DEADLINE_METHOD
 
 
 def load_account_configs(config_path: str | Path) -> Dict[str, AccountSettings]:
@@ -99,6 +103,9 @@ def _parse_account_entry(entry: Dict[str, Any]) -> AccountSettings:
     todoist_api_token = _clean_optional_str(raw_settings.get("todoist_api_token"))
     todoist_project_id = _clean_optional_str(raw_settings.get("todoist_project_id"))
     project_types = _normalize_project_types(raw_settings.get("project_types"))
+    subtask_deadline_method = _normalize_subtask_deadline_method(
+        raw_settings.get("subtask_deadline_method")
+    )
 
     return AccountSettings(
         username=username,
@@ -110,6 +117,7 @@ def _parse_account_entry(entry: Dict[str, Any]) -> AccountSettings:
         todoist_api_token=todoist_api_token,
         todoist_project_id=todoist_project_id,
         project_types=project_types,
+        subtask_deadline_method=subtask_deadline_method,
     )
 
 
@@ -147,5 +155,20 @@ def _normalize_project_types(raw: Any) -> list[str]:
         result = [str(item).strip() for item in raw if str(item).strip()]
         return result
     raise ValueError("project_types must be a string or list.")
+
+
+def _normalize_subtask_deadline_method(raw: Any) -> str:
+    """Validate and normalize the subtask deadline method."""
+    value = _clean_optional_str(raw)
+    if value is None:
+        return DEFAULT_SUBTASK_DEADLINE_METHOD
+
+    normalized = value.lower()
+    if normalized not in VALID_SUBTASK_DEADLINE_METHODS:
+        raise ValueError(
+            "subtask_deadline_method must be one of: "
+            f"{', '.join(sorted(VALID_SUBTASK_DEADLINE_METHODS))}."
+        )
+    return normalized
 
 
