@@ -33,12 +33,32 @@ class TodoSuggestion(BaseModel):
     )
     due_date: str = Field(
         ...,
-        description=f"Due date. Format: YYYY-MM-DD. Consider today's date: {datetime.now().strftime('%Y-%m-%d')}. Consider that if timeline is before today, then you should use next year.",
+        description="Due date. Format: YYYY-MM-DD. Consider today's date when drafting the plan. Consider that if timeline is before today, then you should use next year.",
     )
     labels: list[str] = Field(
         ...,
         description="Labels",
     )
+
+def _refresh_due_date_field_description(reference_dt: Optional[datetime] = None) -> None:
+    """Refresh due_date field description to include the current date.
+
+    Args:
+        reference_dt: Datetime to use for the description. Defaults to now.
+    """
+    try:
+        current_datetime = reference_dt or datetime.now()
+        current_date_str = current_datetime.strftime("%Y-%m-%d")
+        field_info = TodoSuggestion.model_fields["due_date"]
+        field_info.description = (
+            "Due date. Format: YYYY-MM-DD. Consider today's date: "
+            f"{current_date_str}. Consider that if timeline is before today, then you should use next year."
+        )
+        TodoSuggestion.model_rebuild(force=True)
+    except KeyError as exc:
+        logger.exception("Failed to refresh due_date description on TodoSuggestion.")
+        raise RuntimeError("Unable to update due_date field description.") from exc
+
 
 def _build_instruction_prompt(project_types: Sequence[str]) -> str:
     if project_types:
@@ -88,6 +108,8 @@ def generate_todo_suggestions(
         return None
 
     project_types = project_types or []
+    current_datetime = datetime.now()
+    _refresh_due_date_field_description(reference_dt=current_datetime)
 
     system_prompt = prompt.strip() if prompt.strip() else ""
     instruction = _build_instruction_prompt(project_types)
