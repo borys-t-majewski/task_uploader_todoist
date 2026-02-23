@@ -7,7 +7,8 @@ from typing import Any, Dict, Optional
 
 import requests
 
-TODOIST_API_URL_DEFAULT = "https://api.todoist.com/rest/v2/tasks"
+TODOIST_API_URL_DEFAULT = "https://api.todoist.com/api/v1/tasks"
+
 
 
 @dataclass

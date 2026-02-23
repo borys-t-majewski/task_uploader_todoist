@@ -9,7 +9,8 @@ from typing import Iterable, Mapping
 
 import requests
 
-TODOIST_PROJECTS_URL = "https://api.todoist.com/rest/v2/projects"
+# https://developer.todoist.com/api/v1/#get_projects
+TODOIST_PROJECTS_URL = "https://api.todoist.com/api/v1/projects"
 
 logger = logging.getLogger(__name__)
 
@@ -54,18 +55,45 @@ def list_projects(api_token: str | None = None) -> Iterable[Mapping[str, object]
         "Content-Type": "application/json",
     }
 
-    response = requests.get(
-        TODOIST_PROJECTS_URL,
-        headers=headers,
-        timeout=15,
-    )
+    projects: list[Mapping[str, object]] = []
+    cursor: str | None = None
 
-    if response.status_code != 200:
-        raise TodoistError(
-            f"Todoist API error ({response.status_code}): {response.text}"
+    while True:
+        params = {"cursor": cursor} if cursor else None
+        response = requests.get(
+            TODOIST_PROJECTS_URL,
+            headers=headers,
+            params=params,
+            timeout=15,
         )
 
-    return response.json()
+        if response.status_code != 200:
+            raise TodoistError(
+                f"Todoist API error ({response.status_code}): {response.text}"
+            )
+
+        payload = response.json()
+
+        if isinstance(payload, list):
+            projects.extend(payload)
+            break
+
+        if not isinstance(payload, dict):
+            raise TodoistError(
+                f"Unexpected Todoist response payload type: {type(payload)!r}"
+            )
+
+        batch = payload.get("results")
+        if not isinstance(batch, list):
+            raise TodoistError("Todoist response is missing 'results' list.")
+
+        projects.extend(batch)
+
+        cursor = payload.get("next_cursor")
+        if not cursor:
+            break
+
+    return projects
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ from account_config import (
     VALID_SUBTASK_DEADLINE_METHODS,
     load_account_configs,
 )
-from todoist_tasks import TodoistError, create_todoist_task_api
+from todoist_tasks import TODOIST_API_URL_DEFAULT, TodoistError, create_todoist_task_api
 from services.account_service import get_account_settings_for_session
 from services.language_preferences import (
     LANGUAGE_OPTIONS,
@@ -40,7 +40,8 @@ except FileNotFoundError as exc:
 except Exception as exc:  # noqa: BLE001
     raise RuntimeError(f"Failed to load account configuration: {exc}") from exc
 
-TODOIST_API_URL = "https://api.todoist.com/rest/v2/tasks"
+
+TODOIST_API_URL = TODOIST_API_URL_DEFAULT
 
 @app.route('/')
 def index():
